@@ -31,6 +31,9 @@ func (h *Handler) miniApp(w http.ResponseWriter, r *http.Request, rest string) {
 		hd := w.Header()
 		hd.Set("Content-Security-Policy", strings.Replace(hd.Get("Content-Security-Policy"), "frame-ancestors 'none'", "frame-ancestors https://web.telegram.org", 1))
 		hd.Del("X-Frame-Options")
+		// It shows the subscriber's own page once signed in (/<token>/page), whose blocks may
+		// show https images the page for everyone has none of.
+		allowRemoteImages(hd)
 		cfg, _ := h.cfg(r.Context())
 		h.servePage(w, r, cfg.Config)
 	case r.Method == http.MethodPost && rest == "session" && sameOrigin(r):

@@ -12,7 +12,8 @@ import type { Group } from "../model";
 /**
  * The subscription page the group's clients see: the panel's, or the group's own, edited in
  * the page's editor (Settings → Subscription page) for the group. An own page starts as a copy
- * of the panel's; images, instructions and the brand stay the panel's. Each step saves at once.
+ * of the panel's with the panel's brand; the editor gives it a brand, a colour and images of its
+ * own, which go when the page is taken back. Each step saves at once.
  */
 export function PageCard({ group }: { group: Group }) {
   const page = useGroupPage(group.id);

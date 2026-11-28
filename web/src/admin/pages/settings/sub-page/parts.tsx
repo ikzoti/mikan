@@ -18,7 +18,8 @@ export type Look = Schemas["PageLook"];
 
 export type Asset = Schemas["PageAsset"];
 
-export type Form = { config: Config; brand_accent: string };
+/** The editor's draft: the page, and its brand's colour and name. On the panel's page they are the panel's (the name is edited in the general settings); on a group's own page the group's own, "" for the panel's. */
+export type Form = { config: Config; brand_accent: string; brand: string };
 
 export type Set = (f: (c: Config) => Config) => void;
 
@@ -31,7 +32,13 @@ export const MAX_CUSTOM = 12;
 
 export const MAX_CSS = 20480;
 
-export const imageURL = (a?: Asset) => (a ? `${basePath}/api/v1/sub-page/images/${a.name}?v=${a.hash}` : undefined);
+/** Where the admin sees the page's image a: the panel's, or a group's own (logo-g<id>, subpage.GroupAsset). */
+export const imageURL = (a?: Asset) => {
+  if (!a) return undefined;
+  const own = /^(logo|background)-g(\d+)$/.exec(a.name);
+  const path = own ? `groups/${own[2]}/page/images/${own[1]}` : `sub-page/images/${a.name}`;
+  return `${basePath}/api/v1/${path}?v=${a.hash}`;
+};
 
 /** Where the admin sees app id's uploaded icon a. */
 export const appIconURL = (id: string, a?: Asset) => (a ? `${basePath}/api/v1/sub-page/apps/${encodeURIComponent(id)}/icon?v=${a.hash}` : undefined);

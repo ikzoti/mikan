@@ -1015,6 +1015,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/groups/{id}/page/images/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Свой логотип или фон группы */
+        get: operations["get-group-page-image"];
+        /** Загрузить свой логотип или фон группы */
+        put: operations["put-group-page-image"];
+        post?: never;
+        /** Убрать свой логотип или фон группы */
+        delete: operations["delete-group-page-image"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/import": {
         parameters: {
             query?: never;
@@ -5762,17 +5781,27 @@ export interface components {
             inbound_ids: number[];
         };
         GroupPageView: {
+            /** @description Фон панели */
             background?: components["schemas"]["PageAsset"];
-            /** @description Название бренда (settings.brand), общее для всех страниц */
+            /** @description Название бренда панели (settings.brand): его видят клиенты группы без своего */
             brand: string;
-            /** @description Цвет бренда (settings.brand_accent), общий для всех страниц */
+            /** @description Цвет бренда панели (settings.brand_accent): его видят клиенты группы без своего */
             brand_accent: string;
             config: components["schemas"]["Page"];
             /** @description Страница по умолчанию — к ней ведёт «Сбросить» */
             defaults: components["schemas"]["Page"];
+            /** @description Логотип панели */
             logo?: components["schemas"]["PageAsset"];
             /** @description У группы своя страница; false — в config страница для всех */
             own: boolean;
+            /** @description Свой фон группы: на её странице вместо фона панели */
+            own_background?: components["schemas"]["PageAsset"];
+            /** @description Своё название бренда группы на её странице и в приложениях её клиентов; пусто — как у панели */
+            own_brand: string;
+            /** @description Свой цвет бренда группы, #RRGGBB; пусто — как у панели */
+            own_brand_accent: string;
+            /** @description Свой логотип группы: на её странице вместо логотипа панели (GET /api/v1/groups/{id}/page/images/logo) */
+            own_logo?: components["schemas"]["PageAsset"];
         };
         GroupServers: {
             /** @description Серверы как в тарифе клиента; false — только выбранные ноды и протоколы, вместо тарифных. Свой список протоколов в карточке клиента сильнее и того и другого */
@@ -7120,6 +7149,8 @@ export interface components {
         };
         PageApps: {
             android: components["schemas"]["PageAppList"];
+            /** @description Без кнопок «Скачать»: страница их не показывает и не получает их ссылок; инструкции остаются */
+            downloads_off?: boolean;
             ios: components["schemas"]["PageAppList"];
             linux: components["schemas"]["PageAppList"];
             macos: components["schemas"]["PageAppList"];
@@ -8067,7 +8098,15 @@ export interface components {
             /** @description Картинка в base64: PNG, JPEG или WebP до 128 КБ, лучше квадратная. SVG не принимается */
             data: string;
         };
+        PutGroupImageInputBody: {
+            /** @description Картинка в base64: PNG, JPEG или WebP; логотип до 512 КБ, фон до 2 МБ. SVG не принимается */
+            data: string;
+        };
         PutGroupPageInputBody: {
+            /** @description Своё название бренда группы; пусто — как у панели, не передано — как было */
+            brand?: string;
+            /** @description Свой цвет бренда группы, #RRGGBB; пусто — как у панели, не передано — как было */
+            brand_accent?: string;
             config: components["schemas"]["Page"];
         };
         PutSitePageInputBody: {
@@ -12715,6 +12754,109 @@ export interface operations {
             header?: never;
             path: {
                 id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-group-page-image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+                name: "logo" | "background";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description PNG, JPEG или WebP */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    "Content-Type"?: string;
+                    "X-Content-Type-Options"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": unknown;
+                    "image/png": unknown;
+                    "image/webp": unknown;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "put-group-page-image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+                name: "logo" | "background";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutGroupImageInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageAsset"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-group-page-image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+                name: "logo" | "background";
             };
             cookie?: never;
         };

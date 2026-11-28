@@ -15,6 +15,7 @@ import (
 	"mikan/internal/panel/settings"
 	"mikan/internal/panel/store"
 	"mikan/internal/panel/store/db"
+	"mikan/internal/panel/subpage"
 )
 
 // Groups of clients (#290): what a group sees, and later how its subscriptions look. A client
@@ -404,6 +405,10 @@ func (h *handlers) deleteGroup(ctx context.Context, in *groupIDInput) (*struct{}
 			}
 		}
 		if hosts, err = q.RemoveGroupFromHosts(ctx, in.ID); err != nil {
+			return err
+		}
+		// The group's own images are kept by name, out of reach of the foreign keys.
+		if _, err := q.DeleteSubAssets(ctx, subpage.GroupAssets(in.ID)); err != nil {
 			return err
 		}
 		_, err = q.DeleteGroup(ctx, in.ID)

@@ -6,6 +6,7 @@ import (
 
 	"mikan/internal/panel/domain"
 	"mikan/internal/panel/store/db"
+	"mikan/internal/panel/subpage"
 	submodel "mikan/internal/sub/model"
 )
 
@@ -65,8 +66,26 @@ func (c Config) forGroup(group int64) Config {
 	}
 	if a.Page {
 		c.Page = group
+		// The group's own brand goes with its own page: there and in its clients' apps.
+		set(&c.Brand, a.Brand)
+		set(&c.App.Accent, a.BrandAccent)
+		if logo, ok := c.GroupLogos[group]; ok {
+			c.App.LogoURL = logo
+		}
 	}
 	return c
+}
+
+// groupLogos are the links of the groups' own logos among assets, by group: what the apps of a
+// group's clients take (forGroup). base is the subscriptions' address.
+func groupLogos(base string, assets map[string]subpage.PageAsset) map[int64]string {
+	out := map[int64]string{}
+	for name, a := range assets {
+		if image, group, ok := subpage.GroupOfAsset(name); ok && image == subpage.AssetLogo {
+			out[group] = base + "/" + subpage.AssetPath(name, a.Hash)
+		}
+	}
+	return out
 }
 
 // groupTemplates are ts with a group's template of each core (own) as the core's default: a

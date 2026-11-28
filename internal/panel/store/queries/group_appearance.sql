@@ -2,7 +2,7 @@
 -- Every group's appearance but its page, which only the group's subscription page reads:
 -- has_page says it has one.
 SELECT group_id, template_mihomo, template_singbox, template_xray, title, announce, announce_url, support_url,
-       update_hours, headers, require_hwid, unbind_rules, (page IS NOT NULL)::boolean AS has_page
+       update_hours, headers, require_hwid, unbind_rules, (page IS NOT NULL)::boolean AS has_page, brand, brand_accent
 FROM user_group_appearance ORDER BY group_id;
 
 -- name: SetGroupAppearance :exec
@@ -25,6 +25,14 @@ SELECT page FROM user_group_appearance WHERE group_id = $1;
 -- The group's own subscription page; NULL: the panel's again.
 INSERT INTO user_group_appearance (group_id, page) VALUES (sqlc.arg(group_id), sqlc.narg(page))
 ON CONFLICT (group_id) DO UPDATE SET page = excluded.page;
+
+-- name: GetGroupBrand :one
+SELECT brand, brand_accent FROM user_group_appearance WHERE group_id = $1;
+
+-- name: SetGroupBrand :exec
+-- The group's own brand name and colour; NULL: the panel's.
+INSERT INTO user_group_appearance (group_id, brand, brand_accent) VALUES (sqlc.arg(group_id), sqlc.narg(brand), sqlc.narg(brand_accent))
+ON CONFLICT (group_id) DO UPDATE SET brand = excluded.brand, brand_accent = excluded.brand_accent;
 
 -- name: ListGroupHosts :many
 -- Where each group's clients reach an inbound in place of its default address.

@@ -487,7 +487,8 @@ export const groupActions = {
   remove: (id: number) => unwrap(api.DELETE("/api/v1/groups/{id}", { params: { path: { id } } })),
   order: (ids: number[]) => unwrap(api.PUT("/api/v1/groups/order", { body: { ids } })),
   /** The group's own subscription page: config saved as its own. */
-  putPage: ({ id, config }: { id: number; config: Schemas["Page"] }) => unwrap(api.PUT("/api/v1/groups/{id}/page", { params: { path: { id } }, body: { config } })),
+  // A brand left out stays the group's as it is.
+  putPage: ({ id, ...body }: { id: number; config: Schemas["Page"]; brand?: string; brand_accent?: string }) => unwrap(api.PUT("/api/v1/groups/{id}/page", { params: { path: { id } }, body })),
   /** The panel's page for the group again. */
   removePage: (id: number) => unwrap(api.DELETE("/api/v1/groups/{id}/page", { params: { path: { id } } })),
 };

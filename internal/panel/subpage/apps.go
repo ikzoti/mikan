@@ -72,6 +72,16 @@ func (c *AppCatalog) onlyDocs(docs map[int64]bool) {
 	}
 }
 
+// dropDownloads leaves the apps with no download buttons: a page that turns them off sends
+// none of their links (PageApps.DownloadsOff).
+func (c *AppCatalog) dropDownloads() {
+	for _, list := range c.lists() {
+		for i := range *list {
+			(*list)[i].Downloads = []AppDownload{}
+		}
+	}
+}
+
 // preset is a built-in app: the admin may change where it is downloaded and its instructions,
 // not what it is.
 type preset struct {
@@ -244,26 +254,12 @@ func (c AppsConfig) Catalog(icons map[string]PageAsset) AppCatalog {
 
 func onMihomo(a CatalogApp) bool { return a.Family == string(apps.FamilyMihomo) }
 
-// keepShown leaves in c the apps that some page of pages shows, each platform by its own lists:
-// a group's own page goes with those the panel's page shows too (Service.catalogOf).
-func (c *AppCatalog) keepShown(pages ...PageApps) {
+// keepShown leaves in c the apps page shows, each platform by its own list (Service.catalogOf).
+func (c *AppCatalog) keepShown(page PageApps) {
+	hides := page.lists()
 	for i, list := range c.lists() {
-		hides := make([][]string, 0, len(pages))
-		for _, p := range pages {
-			hides = append(hides, p.lists()[i].Hidden)
-		}
-		*list = slices.DeleteFunc(*list, func(a CatalogApp) bool { return hiddenByAll(hides, a.ID) })
+		*list = slices.DeleteFunc(*list, func(a CatalogApp) bool { return slices.Contains(hides[i].Hidden, a.ID) })
 	}
-}
-
-// hiddenByAll says whether each list of hides holds id; with no lists nothing is hidden.
-func hiddenByAll(hides [][]string, id string) bool {
-	for _, hidden := range hides {
-		if !slices.Contains(hidden, id) {
-			return false
-		}
-	}
-	return len(hides) > 0
 }
 
 // presetsOn are the built-in apps on platform in their default order, as the admin changed them.

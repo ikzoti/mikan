@@ -58,6 +58,9 @@ type Config struct {
 	// forGroup lays a group's over the rest.
 	Appearance map[int64]domain.GroupAppearance
 	Addresses  map[int64]map[int64]submodel.AddressOverride
+	// GroupLogos are the links the apps take of each group's own logo (subpage.GroupAsset):
+	// forGroup gives one to the clients of a group with its own page.
+	GroupLogos map[int64]string
 }
 
 // Binder hands devices their keys (domain.Devices). Admit tells what Bind would do, and
@@ -221,7 +224,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case token == "brand" && h.pages != nil:
 		h.image(w, r, rest)
 		return
-	case rest != "" && rest != "info" && !strings.HasPrefix(rest, "docs/"):
+	case rest != "" && rest != "info" && rest != "page" && !strings.HasPrefix(rest, "docs/"):
 		server.NotFound(w)
 		return
 	}
@@ -263,6 +266,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	sub, err := h.subscriptionOf(r.Context(), u, cfg)
 	if err != nil {
 		internalError(w)
+		return
+	}
+	if rest == "page" {
+		if h.pages == nil {
+			server.NotFound(w)
+			return
+		}
+		h.pageData(r.Context(), w, sub.cfg.Config)
 		return
 	}
 	h.info(r.Context(), w, sub)

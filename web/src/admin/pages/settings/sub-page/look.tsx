@@ -12,7 +12,7 @@ import { fieldErrors } from "../../../../lib/fields";
 import { followsMode, MODE_PALETTES, THEMES } from "../../../../lib/themes";
 import { Card, COLOR, imageProblem, imageURL, LIMITS, MAX_CSS, readBase64, type Asset, type Config, type Look, type SectionProps, type Set } from "./parts";
 
-function ColorField({ id, label, value, onChange, error, hint }: { id: string; label: string; value: string; onChange: (v: string) => void; error?: string; hint?: string }) {
+function ColorField({ id, label, value, onChange, error, hint, placeholder = "#F07A2E" }: { id: string; label: string; value: string; onChange: (v: string) => void; error?: string; hint?: string; placeholder?: string }) {
   const valid = COLOR.test(value.trim());
   return (
     <Field label={label} htmlFor={id} error={error ?? (value.trim() && !valid ? t("settings.page.colorInvalid") : undefined)} hint={hint}>
@@ -24,17 +24,18 @@ function ColorField({ id, label, value, onChange, error, hint }: { id: string; l
           onChange={(e) => onChange(e.target.value.toUpperCase())}
           aria-label={t("settings.page.colorPick", { name: label })}
         />
-        <input id={id} className="input mono max-w-[140px]" value={value} maxLength={7} placeholder="#F07A2E" autoComplete="off" spellCheck={false} onChange={(e) => onChange(e.target.value)} aria-invalid={!!error || (!!value.trim() && !valid)} />
+        <input id={id} className="input mono max-w-[140px]" value={value} maxLength={7} placeholder={placeholder} autoComplete="off" spellCheck={false} onChange={(e) => onChange(e.target.value)} aria-invalid={!!error || (!!value.trim() && !valid)} />
       </div>
     </Field>
   );
 }
 
 /**
- * The page's look. accentShared: the page is a group's, whose brand colour is the panel's,
- * shown and not edited here.
+ * The page's look. group: the page is a group's own, whose brand colour and background image
+ * may be its own: the colour left empty is the panel's (accent), and the image goes to the
+ * group's (background is the group's own then).
  */
-export function LookSection({ draft, setDraft, set, errors, accentMissing, background, accentShared }: SectionProps & { accentMissing: boolean; background?: Asset; accentShared?: boolean }) {
+export function LookSection({ draft, setDraft, set, errors, accentMissing, background, group }: SectionProps & { accentMissing: boolean; background?: Asset; group?: { id: number; accent: string } }) {
   const look = draft.config.look;
   const setLook = (patch: Partial<Look>) => set((c) => ({ ...c, look: { ...c.look, ...patch } }));
   const bg = look.background;
@@ -107,8 +108,8 @@ export function LookSection({ draft, setDraft, set, errors, accentMissing, backg
             onChange={(accent) => {
               setLook({ accent });
               // The brand's colour starts as the palette's, not as an empty field to fill; a
-              // group's page takes the panel's as it is.
-              if (accent === "brand" && !accentShared && !COLOR.test(draft.brand_accent.trim())) setDraft((d) => ({ ...d, brand_accent: "#F07A2E" }));
+              // group's page starts from the panel's when the panel has one.
+              if (accent === "brand" && !COLOR.test(draft.brand_accent.trim()) && !COLOR.test(group?.accent ?? "")) setDraft((d) => ({ ...d, brand_accent: "#F07A2E" }));
             }}
             options={[
               { value: "theme", label: t("settings.page.accentTheme") },
@@ -116,21 +117,15 @@ export function LookSection({ draft, setDraft, set, errors, accentMissing, backg
             ]}
           />
         </Field>
-        {look.accent === "brand" && accentShared ? (
-          <Field label={t("settings.brandAccent")} hint={t("settings.page.accentShared")} error={errors["config.look.accent"]}>
-            <div className="flex items-center gap-2">
-              <span className="h-9 w-9 shrink-0 rounded-[var(--r-md)] border border-[var(--hairline)]" style={{ background: COLOR.test(draft.brand_accent.trim()) ? draft.brand_accent.trim() : "transparent" }} aria-hidden />
-              <span className="mono text-[13px]">{draft.brand_accent.trim() || "—"}</span>
-            </div>
-          </Field>
-        ) : look.accent === "brand" ? (
+        {look.accent === "brand" ? (
           <ColorField
             id="sp-accent"
             label={t("settings.brandAccent")}
             value={draft.brand_accent}
             onChange={(brand_accent) => setDraft((d) => ({ ...d, brand_accent }))}
-            error={errors.brand_accent ?? (accentMissing && draft.brand_accent.trim() === "" ? t("errors.api.color_required") : undefined)}
-            hint={t("settings.page.brandAccentHint")}
+            error={errors.brand_accent ?? errors["config.look.accent"] ?? (accentMissing ? t("errors.api.color_required") : undefined)}
+            hint={!group ? t("settings.page.brandAccentHint") : COLOR.test(group.accent) ? t("settings.page.groupAccentHint", { color: group.accent }) : t("settings.page.groupAccentNone")}
+            placeholder={group && COLOR.test(group.accent) ? group.accent : undefined}
           />
         ) : null}
       </Card>
@@ -166,7 +161,7 @@ export function LookSection({ draft, setDraft, set, errors, accentMissing, backg
         ) : null}
         {bg.kind === "image" ? (
           <>
-            <ImageField name="background" asset={background} label={t("settings.page.bgImage")} hint={t("settings.page.bgImageHint")} />
+            <ImageField name="background" asset={background} group={group?.id} label={t("settings.page.bgImage")} hint={group ? t("settings.page.groupBackgroundHint") : t("settings.page.bgImageHint")} />
             <Field label={t("settings.page.bgDim", { n: bg.dim })} htmlFor="sp-bg-dim" hint={t("settings.page.bgDimHint")}>
               <input id="sp-bg-dim" type="range" min={0} max={80} step={5} value={bg.dim} onChange={(e) => setBg({ dim: Number(e.target.value) })} className="w-full accent-[var(--mikan-500)]" />
             </Field>
@@ -218,21 +213,29 @@ export function LookSection({ draft, setDraft, set, errors, accentMissing, backg
 }
 
 /** An image of the page (the logo, the background): uploaded at once, sniffed by the server. */
-export function ImageField({ name, asset, label, hint }: { name: "logo" | "background"; asset?: Asset; label: string; hint: string }) {
+/** An image of the page, uploaded as soon as it is picked: the panel's, or with group the group's own. */
+export function ImageField({ name, asset, group, label, hint }: { name: "logo" | "background"; asset?: Asset; group?: number; label: string; hint: string }) {
   const qc = useQueryClient();
   const toast = useToast();
   const input = useRef<HTMLInputElement>(null);
   const [local, setLocal] = useState("");
+  const page = group ? qk.groupPage(group) : qk.subPage;
   const upload = useMutation({
-    mutationFn: async (file: File) => unwrap(api.PUT("/api/v1/sub-page/images/{name}", { params: { path: { name } }, body: { data: await readBase64(file) } })),
+    mutationFn: async (file: File) => {
+      const body = { data: await readBase64(file) };
+      return group
+        ? unwrap(api.PUT("/api/v1/groups/{id}/page/images/{name}", { params: { path: { id: group, name } }, body }))
+        : unwrap(api.PUT("/api/v1/sub-page/images/{name}", { params: { path: { name } }, body }));
+    },
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: qk.subPage });
+      void qc.invalidateQueries({ queryKey: page });
       toast.ok(t("settings.page.imageUploaded"));
     },
   });
   const remove = useMutation({
-    mutationFn: () => unwrap(api.DELETE("/api/v1/sub-page/images/{name}", { params: { path: { name } } })),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: qk.subPage }),
+    mutationFn: () =>
+      group ? unwrap(api.DELETE("/api/v1/groups/{id}/page/images/{name}", { params: { path: { id: group, name } } })) : unwrap(api.DELETE("/api/v1/sub-page/images/{name}", { params: { path: { name } } })),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: page }),
     onError: (e) => toast.error(errorText(e)),
   });
   const pick = (file?: File) => {

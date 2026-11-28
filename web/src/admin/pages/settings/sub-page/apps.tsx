@@ -92,6 +92,12 @@ export function AppsSection({ config, set, errors, announce, platform, setPlatfo
           </Select>
         </Field>
         <SwitchRow label={t("settings.page.qr")} sub={t("settings.page.qrSub")} checked={apps.qr} onChange={(qr) => set((c) => ({ ...c, apps: { ...c.apps, qr } }))} />
+        <SwitchRow
+          label={t("settings.page.downloadsOn")}
+          sub={t("settings.page.downloadsOnSub")}
+          checked={!apps.downloads_off}
+          onChange={(on) => set((c) => ({ ...c, apps: { ...c.apps, downloads_off: !on } }))}
+        />
       </div>
       <div className="mb-3 flex gap-1 overflow-x-auto" role="group" aria-label={t("sub.platform")}>
         <Segmented label={t("sub.platform")} value={platform} onChange={setPlatform} options={PLATFORMS.map((p) => ({ value: p, label: PLATFORM_NAMES[p]! }))} />

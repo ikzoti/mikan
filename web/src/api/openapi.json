@@ -4818,14 +4818,15 @@
         "additionalProperties": false,
         "properties": {
           "background": {
-            "$ref": "#/components/schemas/PageAsset"
+            "$ref": "#/components/schemas/PageAsset",
+            "description": "Фон панели"
           },
           "brand": {
-            "description": "Название бренда (settings.brand), общее для всех страниц",
+            "description": "Название бренда панели (settings.brand): его видят клиенты группы без своего",
             "type": "string"
           },
           "brand_accent": {
-            "description": "Цвет бренда (settings.brand_accent), общий для всех страниц",
+            "description": "Цвет бренда панели (settings.brand_accent): его видят клиенты группы без своего",
             "type": "string"
           },
           "config": {
@@ -4836,11 +4837,28 @@
             "description": "Страница по умолчанию — к ней ведёт «Сбросить»"
           },
           "logo": {
-            "$ref": "#/components/schemas/PageAsset"
+            "$ref": "#/components/schemas/PageAsset",
+            "description": "Логотип панели"
           },
           "own": {
             "description": "У группы своя страница; false — в config страница для всех",
             "type": "boolean"
+          },
+          "own_background": {
+            "$ref": "#/components/schemas/PageAsset",
+            "description": "Свой фон группы: на её странице вместо фона панели"
+          },
+          "own_brand": {
+            "description": "Своё название бренда группы на её странице и в приложениях её клиентов; пусто — как у панели",
+            "type": "string"
+          },
+          "own_brand_accent": {
+            "description": "Свой цвет бренда группы, #RRGGBB; пусто — как у панели",
+            "type": "string"
+          },
+          "own_logo": {
+            "$ref": "#/components/schemas/PageAsset",
+            "description": "Свой логотип группы: на её странице вместо логотипа панели (GET /api/v1/groups/{id}/page/images/logo)"
           }
         },
         "required": [
@@ -4848,7 +4866,9 @@
           "config",
           "defaults",
           "brand",
-          "brand_accent"
+          "brand_accent",
+          "own_brand",
+          "own_brand_accent"
         ],
         "type": "object"
       },
@@ -8464,6 +8484,10 @@
           "android": {
             "$ref": "#/components/schemas/PageAppList"
           },
+          "downloads_off": {
+            "description": "Без кнопок «Скачать»: страница их не показывает и не получает их ссылок; инструкции остаются",
+            "type": "boolean"
+          },
           "ios": {
             "$ref": "#/components/schemas/PageAppList"
           },
@@ -10989,9 +11013,34 @@
         ],
         "type": "object"
       },
+      "PutGroupImageInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "description": "Картинка в base64: PNG, JPEG или WebP; логотип до 512 КБ, фон до 2 МБ. SVG не принимается",
+            "maxLength": 2800000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
       "PutGroupPageInputBody": {
         "additionalProperties": false,
         "properties": {
+          "brand": {
+            "description": "Своё название бренда группы; пусто — как у панели, не передано — как было",
+            "maxLength": 40,
+            "type": "string"
+          },
+          "brand_accent": {
+            "description": "Свой цвет бренда группы, #RRGGBB; пусто — как у панели, не передано — как было",
+            "maxLength": 7,
+            "type": "string"
+          },
           "config": {
             "$ref": "#/components/schemas/Page"
           }
@@ -20079,6 +20128,187 @@
           }
         },
         "summary": "Своя страница подписки группы",
+        "tags": [
+          "users"
+        ],
+        "x-session-only": true
+      }
+    },
+    "/api/v1/groups/{id}/page/images/{name}": {
+      "delete": {
+        "operationId": "delete-group-page-image",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "enum": [
+                "logo",
+                "background"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Убрать свой логотип или фон группы",
+        "tags": [
+          "users"
+        ],
+        "x-session-only": true
+      },
+      "get": {
+        "operationId": "get-group-page-image",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "enum": [
+                "logo",
+                "background"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/jpeg": {},
+              "image/png": {},
+              "image/webp": {}
+            },
+            "description": "PNG, JPEG или WebP",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Type": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Свой логотип или фон группы",
+        "tags": [
+          "users"
+        ]
+      },
+      "put": {
+        "operationId": "put-group-page-image",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "enum": [
+                "logo",
+                "background"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutGroupImageInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageAsset"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Загрузить свой логотип или фон группы",
         "tags": [
           "users"
         ],

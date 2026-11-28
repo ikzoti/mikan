@@ -502,10 +502,9 @@ func TestSubPageAppIconsOverHTTP(t *testing.T) {
 	}
 }
 
-// A page's data holds the apps it shows (#278): an app the page for everyone hides is on
-// neither its subscribers' pages nor the Mini App's, so an app a group's page alone shows
-// reaches that group's clients alone. A group's own page keeps what the page for everyone
-// shows, since the Mini App's "Add" opens on it: only an app both hide is left out.
+// A page's data holds the apps it shows (#278): an app a page hides is not in its data, so an
+// app a group's page alone shows reaches that group's clients alone. The Mini App opens with
+// the page for everyone and then shows a subscriber their own (/<token>/page).
 func TestSubPageHiddenAppsStayOut(t *testing.T) {
 	k := newKeyHarness(t)
 	ctx := context.Background()
@@ -565,11 +564,54 @@ func TestSubPageHiddenAppsStayOut(t *testing.T) {
 	for what, c := range map[string]struct{ path, want string }{
 		"the panel's page": {other.SubToken, "incy,v2raytun"},
 		"the Mini App":     {"tg", "incy,v2raytun"},
-		"the group's page": {vip.SubToken, "happ,incy,v2raytun,own-ours1"},
+		"the group's page": {vip.SubToken, "happ,v2raytun,own-ours1"},
 	} {
 		if got := ios(c.path); got != c.want {
 			t.Errorf("%s: %s, want %s", what, got, c.want)
 		}
+	}
+	resp, body := k.do(http.MethodGet, "/"+subPath+"/"+vip.SubToken+"/page", nil, nil)
+	var mini struct {
+		Page subpage.Public `json:"page"`
+	}
+	if resp.StatusCode != http.StatusOK || json.Unmarshal(body, &mini) != nil || appIDs(mini.Page.Catalog.IOS) != "happ,v2raytun,own-ours1" || resp.Header.Get("Cache-Control") != "no-store" {
+		t.Fatalf("the Mini App's page of the group's client: %d %s", resp.StatusCode, body)
+	}
+}
+
+// A page that turns the download buttons off is sent none of their links, built-in or the
+// admin's; the apps stay, with the link that adds the subscription.
+func TestSubPageDownloadsOff(t *testing.T) {
+	k := newKeyHarness(t)
+	read := pageReader(t, k)
+	resp, raw := k.do(http.MethodPut, k.api+"/sub-page/apps", appsDoc(ourApp()), k.csrf)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("apps: %d %s", resp.StatusCode, raw)
+	}
+	if p := read(); len(appOn(p.Catalog.IOS, "happ").Downloads) == 0 || len(appOn(p.Catalog.IOS, "own-ours1").Downloads) != 1 {
+		t.Fatalf("buttons on: %+v", p.Catalog.IOS)
+	}
+	resp, raw = k.do(http.MethodGet, k.api+"/sub-page", nil, nil)
+	var view struct {
+		Config subpage.Page `json:"config"`
+	}
+	if resp.StatusCode != http.StatusOK || json.Unmarshal(raw, &view) != nil {
+		t.Fatalf("page: %d %s", resp.StatusCode, raw)
+	}
+	view.Config.Apps.DownloadsOff = true
+	if resp, raw = k.do(http.MethodPut, k.api+"/sub-page", map[string]any{"config": view.Config}, k.csrf); resp.StatusCode/100 != 2 {
+		t.Fatalf("buttons off: %d %s", resp.StatusCode, raw)
+	}
+	p := read()
+	for _, list := range [][]subpage.CatalogApp{p.Catalog.IOS, p.Catalog.Android, p.Catalog.Windows, p.Catalog.MacOS, p.Catalog.Linux} {
+		for _, a := range list {
+			if len(a.Downloads) > 0 {
+				t.Errorf("%s: %+v, want no buttons", a.ID, a.Downloads)
+			}
+		}
+	}
+	if !p.Config.Apps.DownloadsOff || appOn(p.Catalog.IOS, "own-ours1").Link == "" {
+		t.Fatalf("the page or the apps went with the buttons: %+v %+v", p.Config.Apps, p.Catalog.IOS)
 	}
 }
 

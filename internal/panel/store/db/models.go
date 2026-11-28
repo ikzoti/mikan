@@ -897,6 +897,8 @@ type UserGroupAppearance struct {
 	RequireHwid     sql.NullBool
 	UnbindRules     sql.NullString
 	Page            sql.NullString
+	Brand           sql.NullString
+	BrandAccent     sql.NullString
 }
 
 type UserGroupHost struct {

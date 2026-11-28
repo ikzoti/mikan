@@ -15,8 +15,8 @@ export type BlockType = PageBlock["type"];
 export type DocItem = { id: number; title: string; emoji?: string; platform?: string; i18n?: Texts<"title" | "body"> };
 export type DocView = DocItem & { body: string };
 
-/** The page's data block (subpage.Public). */
-type PagePublic = {
+/** The page's data block (subpage.Public); the Mini App gets the subscriber's own from /<token>/page. */
+export type PagePublic = {
   config: PageConfig;
   brand: string;
   /** The brand's colour when the page takes it; none keeps the palette's. */
@@ -25,7 +25,7 @@ type PagePublic = {
   logo?: string;
   background?: string;
   docs: DocItem[];
-  /** The catalogue without the apps the page hides (a group's page keeps those the panel's page shows, for the Mini App's "Add"); config.apps orders it and hides those. */
+  /** The catalogue without the apps the page hides; config.apps orders it. */
   catalog: AppCatalog;
 };
 
@@ -191,10 +191,14 @@ function emojiIcon(emoji: string): string {
   return "data:image/svg+xml," + encodeURIComponent(svg);
 }
 
+// How the look put on last follows the visitor's scheme; a look put over it (the Mini App's
+// switch to the subscriber's own page) stops it.
+let unfollow: (() => void) | undefined;
+
 /**
  * Puts the page's look on its <html> (before the first paint: no flash of the default
- * look), its icon on the tab and its backdrop colour on the browser's bar. "system"
- * follows the visitor's scheme as it changes.
+ * look), its icon on the tab and its backdrop colour on the browser's bar, in place of the
+ * look it had. "system" follows the visitor's scheme as it changes.
  */
 export function applyLook(page: PagePublic, asset: (path?: string) => string | undefined) {
   const root = document.documentElement;
@@ -205,8 +209,13 @@ export function applyLook(page: PagePublic, asset: (path?: string) => string | u
     const bar = look.background.kind === "solid" || look.background.kind === "gradient" ? look.background.from : getComputedStyle(root).getPropertyValue("--bg").trim();
     if (bar) document.querySelector('meta[name="theme-color"]')?.setAttribute("content", bar);
   };
+  unfollow?.();
+  unfollow = undefined;
   paint();
-  if (look.mode === "system") dark?.addEventListener?.("change", paint);
+  if (look.mode === "system" && dark?.addEventListener) {
+    dark.addEventListener("change", paint);
+    unfollow = () => dark.removeEventListener("change", paint);
+  }
 
   const brand = page.config.brand;
   const icon = brand.logo === "image" ? asset(page.logo) : brand.logo === "emoji" && brand.emoji ? emojiIcon(brand.emoji) : undefined;
@@ -217,4 +226,19 @@ export function applyLook(page: PagePublic, asset: (path?: string) => string | u
       link.href = icon;
     }
   }
+}
+
+/** Puts the admin's own CSS (cleaned by the server) on the page in place of the one it had: the Mini App's switch to the subscriber's own page. */
+export function applyCSS(css: string) {
+  let style = document.getElementById("mikan-css");
+  if (!css) {
+    style?.remove();
+    return;
+  }
+  if (!style) {
+    style = document.createElement("style");
+    style.id = "mikan-css";
+    document.head.appendChild(style);
+  }
+  style.textContent = css;
 }

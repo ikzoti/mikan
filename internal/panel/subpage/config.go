@@ -89,6 +89,9 @@ type PageApps struct {
 	MacOS    PageAppList `json:"macos"`
 	Linux    PageAppList `json:"linux"`
 	QR       bool        `json:"qr" doc:"Кнопка QR-кода в блоке ссылки"`
+	// DownloadsOff is a page without the download buttons: the page shows none and is sent
+	// none of their links (Service.catalogOf); the instructions stay.
+	DownloadsOff bool `json:"downloads_off,omitempty" doc:"Без кнопок «Скачать»: страница их не показывает и не получает их ссылок; инструкции остаются"`
 }
 
 // PageAppList orders a platform's apps by their ids: those in Order first, in that order, the

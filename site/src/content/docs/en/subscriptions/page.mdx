@@ -9,7 +9,7 @@ A subscription link opened in a browser, or in Telegram as a Mini App, shows the
 
 Further down the page: a step-by-step "How to connect" guide, the link itself and a QR code for another device, the "Contact support" button (the link is set in **Settings → Subscription → Support**), "Open in Telegram", and a "My devices" section if device binding is on: there a device can be unbound or given a name of its own.
 
-A [group of clients](/mikan/en/billing/groups/#appearance) may have a page of its own: its clients see it at the subscription link instead of the page for everyone. The brand, its colour, the images and the instructions are shared by every page, and the Mini App keeps the page for everyone.
+A [group of clients](/mikan/en/billing/groups/#appearance) may have a page of its own: its clients see it at the subscription link and in the Mini App instead of the page for everyone. A group's page may have a brand name, colour, logo and background of its own; the instructions and the apps are shared by every page.
 
 ### Texts in two languages
 
@@ -62,7 +62,7 @@ Apps refresh the subscription hourly, which is how new ports and keys reach clie
 Download buttons, guides, icons and own apps are new in 0.5.2.1.
 :::
 
-In **Settings → Subscription page → Apps** each platform has a list of its own. A switch shows or hides an app, the arrows change the order, and the page marks the first app "Recommended". Each page has its own order and hidden apps, a group's page too. A page doesn't send its visitors the apps it hides: an app hidden on the page for everyone and on the other groups' pages reaches only the clients of the group whose page shows it. An app blocked in **Settings → Subscription → Apps** is marked "Blocked" in the list: the page doesn't offer it, and neither does the preview.
+In **Settings → Subscription page → Apps** each platform has a list of its own. A switch shows or hides an app, the arrows change the order, and the page marks the first app "Recommended". Each page has its own order and hidden apps, a group's page too. A page doesn't send its visitors the apps it hides: an app only a group's page shows reaches only that group's clients. An app blocked in **Settings → Subscription → Apps** is marked "Blocked" in the list: the page doesn't offer it, and neither does the preview.
 
 The pencil button of an app opens its settings on the chosen platform:
 
@@ -71,6 +71,8 @@ The pencil button of an app opens its settings on the chosen platform:
 - **Guide**: one of the guides on the Guides tab. A draft shows on the page once published, and a deleted guide leaves the app too.
 
 The icon, the buttons and the guide are shared by every page, the groups' pages included. They are saved right away, apart from the page's draft. "Back to built-in" resets the app's buttons and guide on that platform.
+
+The "Download buttons" switch above the lists turns the buttons off on this page: it shows none and isn't sent their links, while the guides stay. Each page has a switch of its own, a group's page too.
 
 The built-in apps come with buttons of their own: the App Store and Google Play pages and the GitHub releases their developers link, plus F-Droid for ClashFest and the Microsoft Store for Hiddify on Windows. The Russian App Store has no Happ (for iPhone and Mac), INCY, Streisand or Hiddify for Mac; the App Stores of Kazakhstan and Belarus have them. So Happ, INCY and Streisand also get a button with the developer's site, which says how to install them. v2RayTun has no buttons on the iPhone: its App Store page doesn't open. You can replace the buttons of any app with your own, such as a link to your mirror.
 
@@ -93,7 +95,7 @@ Through the API:
 - `PUT /api/v1/sub-page/apps` takes the `apps` document whole, from the admin's session only: `presets` holds the changes of the built-in apps (`icon` and `platforms`), `own` the own apps. What it leaves out is built-in for the app, and an own app it leaves out is deleted with its icon picture.
 - `PUT` and `DELETE /api/v1/sub-page/apps/{id}/icon` upload (`{"data": "<base64>"}`) and remove an icon picture, from the admin's session only; `GET` gives it. A picture can go to a built-in app or to an own one already saved, and the page shows it while the icon's `kind` is `image`.
 - In the catalogue an app has `own` (whether it is an own app) and `icon`: `kind`, `emoji` or `path`, the picture's path from the subscription path. An own app's `note` is its caption, and its `link` may be empty.
-- The `order` and `hidden` lists in the page's `config.apps` (`/api/v1/sub-page` and `/api/v1/groups/{id}/page`) hold app ids, up to 32 each: `happ`, `koala`, `verge` and so on. The old names, such as `Clash Verge Rev`, are still accepted and read as ids.
+- The `order` and `hidden` lists in the page's `config.apps` (`/api/v1/sub-page` and `/api/v1/groups/{id}/page`) hold app ids, up to 32 each: `happ`, `koala`, `verge` and so on. The old names, such as `Clash Verge Rev`, are still accepted and read as ids. `downloads_off: true` in `config.apps` turns the download buttons off on the page.
 
 ## Subscription settings
 

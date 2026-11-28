@@ -2,6 +2,7 @@ package subsrc
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -30,7 +31,18 @@ func (h *Handler) servePage(w http.ResponseWriter, r *http.Request, cfg serve.Co
 		h.page.ServeHTTP(w, r)
 		return
 	}
-	pub, err := h.pages.Public(r.Context(), cfg.Page, cfg.Brand, cfg.App.Accent)
+	pub := h.publicOf(r.Context(), cfg)
+	if pub.RemoteImages() {
+		allowRemoteImages(w.Header())
+	}
+	hp.ServeHead(w, r, pub.Head(subRootURL(r, cfg)))
+}
+
+// publicOf is the data of the page cfg's subscriber sees: their group's own page and brand, or
+// the panel's. A part that does not read is left out and the rest shown; when none reads, the
+// default page with the built-in apps (subpage.Fallback) rather than no apps.
+func (h *Handler) publicOf(ctx context.Context, cfg serve.Config) subpage.Public {
+	pub, err := h.pages.Public(ctx, cfg.Page, cfg.Brand, cfg.App.Accent)
 	switch {
 	case errors.Is(err, subpage.ErrUnreadable):
 		h.warn("page-unreadable", "subscription page: some of its settings do not read, the page goes without them", "err", err)
@@ -38,12 +50,32 @@ func (h *Handler) servePage(w http.ResponseWriter, r *http.Request, cfg serve.Co
 		h.warn("page", "subscription page: its settings were not read, the default page with the built-in apps is shown", "err", err)
 		pub = subpage.Fallback(cfg.Brand)
 	}
-	if pub.RemoteImages() {
-		// An instruction may show images from other sites, by https only.
-		hd := w.Header()
-		hd.Set("Content-Security-Policy", strings.Replace(hd.Get("Content-Security-Policy"), "img-src 'self' data: blob:", "img-src 'self' data: blob: https:", 1))
+	return pub
+}
+
+// pageData answers "/<token>/page": the data of the subscriber's own page, for the Mini App,
+// which opens with the page for everyone (/tg) and shows a group's own page and brand once it
+// knows whose subscription is on screen. The admin's CSS goes beside it.
+func (h *Handler) pageData(ctx context.Context, w http.ResponseWriter, cfg serve.Config) {
+	pub := h.publicOf(ctx, cfg)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	err := json.NewEncoder(w).Encode(struct {
+		Page subpage.Public `json:"page"`
+		CSS  string         `json:"css,omitempty"`
+	}{pub, pub.Style()})
+	if err != nil {
+		h.warn("page-data", "subscription page: its data was not sent", "err", err)
 	}
-	hp.ServeHead(w, r, pub.Head(subRootURL(r, cfg)))
+}
+
+// allowRemoteImages lets the page show images from other sites, by https only: an instruction
+// or a text block may hold some.
+func allowRemoteImages(hd http.Header) {
+	csp := hd.Get("Content-Security-Policy")
+	if !strings.Contains(csp, "img-src 'self' data: blob: https:") {
+		hd.Set("Content-Security-Policy", strings.Replace(csp, "img-src 'self' data: blob:", "img-src 'self' data: blob: https:", 1))
+	}
 }
 
 // subRootURL is the subscription path's absolute address: the panel's own when it has

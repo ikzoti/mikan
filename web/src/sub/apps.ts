@@ -11,6 +11,12 @@ export type AppDownload = components["schemas"]["AppDownload"];
 /** A catalogue of no apps: the page served without its data (the Vite dev server). */
 export const NO_APPS: AppCatalog = { ios: [], android: [], windows: [], macos: [], linux: [] };
 
+/** catalog as a page with the download buttons off is sent it, with no button's link (the server's subpage dropDownloads): the editor's preview of such a page. */
+export function withoutDownloads(catalog: AppCatalog): AppCatalog {
+  const bare = (list: CatalogApp[]) => list.map((a) => ({ ...a, downloads: [] }));
+  return { ios: bare(catalog.ios), android: bare(catalog.android), windows: bare(catalog.windows), macos: bare(catalog.macos), linux: bare(catalog.linux) };
+}
+
 // The rules of the server's subpage.AppLinkProblem, held here too: a link the server would
 // refuse gives no button, whatever the data says.
 /** How long an app's link may be (subpage.MaxLinkLen). */

@@ -197,7 +197,7 @@ func (h *handlers) putSubPage(ctx context.Context, in *putSubPageInput) (*subPag
 	if in.Body.Brand != nil && (strings.ContainsAny(*in.Body.Brand, "\r\n") || subpage.HasControl(*in.Body.Brand)) {
 		details = append(details, fieldDetail("body.brand", "one_line", nil))
 	}
-	missing, err := h.pageImagesMissing(ctx, c)
+	missing, err := h.pageImagesMissing(ctx, c, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -228,21 +228,22 @@ func (h *handlers) putSubPage(ctx context.Context, in *putSubPageInput) (*subPag
 }
 
 // pageImagesMissing refuses a page that shows an image not uploaded: the logo, the link
-// preview's picture or the background, which every page of the panel's shares.
-func (h *handlers) pageImagesMissing(ctx context.Context, c subpage.Page) ([]error, error) {
+// preview's picture or the background, the panel's, or for group's own page the group's or the
+// panel's (subpage.ImageOf; 0: the panel's page).
+func (h *handlers) pageImagesMissing(ctx context.Context, c subpage.Page, group int64) ([]error, error) {
 	assets, err := h.subPages().Assets(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var out []error
-	if _, ok := assets[subpage.AssetLogo]; !ok && (c.Brand.Logo == "image" || c.OG.Image) {
+	if _, _, ok := subpage.ImageOf(assets, subpage.AssetLogo, group); !ok && (c.Brand.Logo == "image" || c.OG.Image) {
 		field := "body.config.brand.logo"
 		if c.Brand.Logo != "image" {
 			field = "body.config.og.image"
 		}
 		out = append(out, fieldDetail(field, "logo_missing", nil))
 	}
-	if _, ok := assets[subpage.AssetBackground]; !ok && c.Look.Background.Kind == "image" {
+	if _, _, ok := subpage.ImageOf(assets, subpage.AssetBackground, group); !ok && c.Look.Background.Kind == "image" {
 		out = append(out, fieldDetail("body.config.look.background.kind", "background_missing", nil))
 	}
 	return out, nil

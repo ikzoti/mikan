@@ -49,6 +49,22 @@ func (q *Queries) ClearGroupHosts(ctx context.Context, groupID int64) error {
 	return err
 }
 
+const getGroupBrand = `-- name: GetGroupBrand :one
+SELECT brand, brand_accent FROM user_group_appearance WHERE group_id = $1
+`
+
+type GetGroupBrandRow struct {
+	Brand       sql.NullString
+	BrandAccent sql.NullString
+}
+
+func (q *Queries) GetGroupBrand(ctx context.Context, groupID int64) (GetGroupBrandRow, error) {
+	row := q.db.QueryRowContext(ctx, getGroupBrand, groupID)
+	var i GetGroupBrandRow
+	err := row.Scan(&i.Brand, &i.BrandAccent)
+	return i, err
+}
+
 const getGroupPage = `-- name: GetGroupPage :one
 SELECT page FROM user_group_appearance WHERE group_id = $1
 `
@@ -73,7 +89,7 @@ func (q *Queries) GetGroupUnbindRules(ctx context.Context, groupID int64) (sql.N
 
 const listGroupAppearance = `-- name: ListGroupAppearance :many
 SELECT group_id, template_mihomo, template_singbox, template_xray, title, announce, announce_url, support_url,
-       update_hours, headers, require_hwid, unbind_rules, (page IS NOT NULL)::boolean AS has_page
+       update_hours, headers, require_hwid, unbind_rules, (page IS NOT NULL)::boolean AS has_page, brand, brand_accent
 FROM user_group_appearance ORDER BY group_id
 `
 
@@ -91,6 +107,8 @@ type ListGroupAppearanceRow struct {
 	RequireHwid     sql.NullBool
 	UnbindRules     sql.NullString
 	HasPage         bool
+	Brand           sql.NullString
+	BrandAccent     sql.NullString
 }
 
 // Every group's appearance but its page, which only the group's subscription page reads:
@@ -118,6 +136,8 @@ func (q *Queries) ListGroupAppearance(ctx context.Context) ([]ListGroupAppearanc
 			&i.RequireHwid,
 			&i.UnbindRules,
 			&i.HasPage,
+			&i.Brand,
+			&i.BrandAccent,
 		); err != nil {
 			return nil, err
 		}
@@ -210,6 +230,23 @@ func (q *Queries) SetGroupAppearance(ctx context.Context, arg SetGroupAppearance
 		arg.RequireHwid,
 		arg.UnbindRules,
 	)
+	return err
+}
+
+const setGroupBrand = `-- name: SetGroupBrand :exec
+INSERT INTO user_group_appearance (group_id, brand, brand_accent) VALUES ($1, $2, $3)
+ON CONFLICT (group_id) DO UPDATE SET brand = excluded.brand, brand_accent = excluded.brand_accent
+`
+
+type SetGroupBrandParams struct {
+	GroupID     int64
+	Brand       sql.NullString
+	BrandAccent sql.NullString
+}
+
+// The group's own brand name and colour; NULL: the panel's.
+func (q *Queries) SetGroupBrand(ctx context.Context, arg SetGroupBrandParams) error {
+	_, err := q.db.ExecContext(ctx, setGroupBrand, arg.GroupID, arg.Brand, arg.BrandAccent)
 	return err
 }
 

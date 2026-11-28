@@ -356,6 +356,29 @@ func TestCatalogOnlyDocs(t *testing.T) {
 	}
 }
 
+// A page with the download buttons off sends none of their links, built-in or the admin's;
+// the apps keep their links that add the subscription and their instructions.
+func TestCatalogDropDownloads(t *testing.T) {
+	own := ownApp("own-a1")
+	own.Platforms["ios"] = OwnPlatform{Downloads: []AppDownload{{Kind: "mirror", URL: "https://files.example.com/our.ipa"}}}
+	c := AppsConfig{Presets: map[string]PresetEdit{"happ": {Platforms: map[string]PlatformEdit{"ios": {Doc: 5}}}}, Own: []OwnApp{own}}
+	got := c.Catalog(nil)
+	got.dropDownloads()
+	for _, list := range got.lists() {
+		for _, a := range *list {
+			if a.Downloads == nil || len(a.Downloads) > 0 {
+				t.Errorf("%s: downloads %+v, want an empty list", a.ID, a.Downloads)
+			}
+		}
+	}
+	if happ := find(t, got.IOS, "happ"); happ.Doc != 5 || happ.Link == "" {
+		t.Fatalf("happ lost more than its buttons: %+v", happ)
+	}
+	if again := c.Catalog(nil); len(find(t, again.IOS, "happ").Downloads) == 0 {
+		t.Fatal("the built-in buttons are gone from the table")
+	}
+}
+
 func TestDocRefs(t *testing.T) {
 	c := AppsConfig{Presets: map[string]PresetEdit{
 		"happ":    {Platforms: map[string]PlatformEdit{"macos": {Doc: 4}, "ios": {Doc: 2}, "android": {Downloads: downloads()}}},
@@ -405,8 +428,8 @@ func TestDropDocs(t *testing.T) {
 	}
 }
 
-// A page's data holds the apps the page shows: one hidden there is not in it. A group's own page
-// keeps those the panel's page shows too, so only an app both hide is left out.
+// A page's data holds the apps the page shows: one hidden there is not in it, whatever another
+// page shows.
 func TestKeepShown(t *testing.T) {
 	c := withOwn(OwnApp{ID: "own-vip", Name: "Для своих", Family: "xray", Platforms: map[string]OwnPlatform{"ios": {}, "android": {}}})
 	if ps := NormalizeApps(&c); len(ps) != 0 {
@@ -430,9 +453,9 @@ func TestKeepShown(t *testing.T) {
 		}
 	}
 	onGroup := c.Catalog(nil)
-	onGroup.keepShown(group, panel)
+	onGroup.keepShown(group)
 	for platform, want := range map[string]string{
-		"ios":     "happ,incy,v2raytun,own-vip",
+		"ios":     "happ,v2raytun,own-vip",
 		"android": ids(presets.Android) + ",own-vip",
 	} {
 		if list := *onGroup.lists()[slices.Index(Platforms, platform)]; ids(list) != want {
@@ -440,8 +463,8 @@ func TestKeepShown(t *testing.T) {
 		}
 	}
 	all := c.Catalog(nil)
-	all.keepShown()
+	all.keepShown(Default().Apps)
 	if !reflect.DeepEqual(all, c.Catalog(nil)) {
-		t.Fatal("no page hides nothing")
+		t.Fatal("a page that hides nothing lost an app")
 	}
 }

@@ -168,15 +168,17 @@ func LoadConfig(ctx context.Context, d ConfigDeps) (Config, error) {
 			return Config{}, err
 		}
 	}
-	// The apps take the logo uploaded for the page when no link of its own is given.
-	if cfg.App.Enabled && cfg.App.LogoURL == "" && cfg.SubBase != "" {
+	// The apps take the logo uploaded for the page when no link of its own is given, and a
+	// group's clients the group's own (forGroup).
+	if cfg.App.Enabled && cfg.SubBase != "" {
 		assets, err := d.Pages.Assets(ctx)
 		if err != nil {
 			return Config{}, err
 		}
-		if a, ok := assets[subpage.AssetLogo]; ok {
+		if a, ok := assets[subpage.AssetLogo]; ok && cfg.App.LogoURL == "" {
 			cfg.App.LogoURL = cfg.SubBase + "/" + subpage.AssetPath(subpage.AssetLogo, a.Hash)
 		}
+		cfg.GroupLogos = groupLogos(cfg.SubBase, assets)
 	}
 	if cfg.PaymentAccess, err = domain.LoadPaymentAccess(ctx, set); err != nil {
 		return Config{}, err

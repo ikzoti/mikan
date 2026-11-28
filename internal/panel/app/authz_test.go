@@ -108,6 +108,8 @@ func TestFullKeyCannotTakeOverThePanel(t *testing.T) {
 		"delete-sub-page-image":    {http.MethodDelete, "/sub-page/images/logo", nil},
 		"put-sub-page-app-icon":    {http.MethodPut, "/sub-page/apps/happ/icon", map[string]any{"data": "iVBORw0KGgo="}},
 		"delete-sub-page-app-icon": {http.MethodDelete, "/sub-page/apps/happ/icon", nil},
+		"put-group-page-image":     {http.MethodPut, "/groups/1/page/images/logo", map[string]any{"data": "iVBORw0KGgo="}},
+		"delete-group-page-image":  {http.MethodDelete, "/groups/1/page/images/logo", nil},
 		"create-sub-doc":           {http.MethodPost, "/sub-docs", map[string]any{"title": "Pay here", "emoji": "", "body": "", "platform": "", "published": true}},
 		"update-sub-doc":           {http.MethodPut, "/sub-docs/1", map[string]any{"title": "Pay here", "emoji": "", "body": "", "platform": "", "published": true}},
 		"delete-sub-doc":           {http.MethodDelete, "/sub-docs/1", nil},

@@ -33,6 +33,9 @@ type GroupAppearance struct {
 	// Page: the group has a subscription page of its own (SetGroupPage). It is read with the
 	// appearance and written apart from it.
 	Page bool
+	// Brand and BrandAccent are the brand's name and colour (#RRGGBB) on the group's own page
+	// and in its clients' apps, written with the page (SetGroupBrand); nil: the panel's.
+	Brand, BrandAccent *string
 }
 
 // GroupCores are the cores a group may have a template of, in the order they are shown.
@@ -57,6 +60,7 @@ func GroupAppearanceOf(r db.ListGroupAppearanceRow) GroupAppearance {
 		return &s.String
 	}
 	a.Title, a.Announce, a.AnnounceURL, a.SupportURL = text(r.Title), text(r.Announce), text(r.AnnounceUrl), text(r.SupportUrl)
+	a.Brand, a.BrandAccent = text(r.Brand), text(r.BrandAccent)
 	if r.UpdateHours.Valid {
 		h := int(r.UpdateHours.Int64)
 		a.UpdateHours = &h
@@ -174,4 +178,19 @@ func GroupPage(ctx context.Context, q *db.Queries, id int64) (raw string, ok boo
 // already checked), or with "" the panel's again.
 func SetGroupPage(ctx context.Context, q *db.Queries, id int64, raw string) error {
 	return q.SetGroupPage(ctx, db.SetGroupPageParams{GroupID: id, Page: sql.NullString{String: raw, Valid: raw != ""}})
+}
+
+// GroupBrand is group id's own brand name and colour; "" is the panel's.
+func GroupBrand(ctx context.Context, q *db.Queries, id int64) (brand, accent string, err error) {
+	r, err := q.GetGroupBrand(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", nil
+	}
+	return r.Brand.String, r.BrandAccent.String, err
+}
+
+// SetGroupBrand gives group id a brand name and colour (#RRGGBB) of its own, already checked;
+// "" is the panel's.
+func SetGroupBrand(ctx context.Context, q *db.Queries, id int64, brand, accent string) error {
+	return q.SetGroupBrand(ctx, db.SetGroupBrandParams{GroupID: id, Brand: sql.NullString{String: brand, Valid: brand != ""}, BrandAccent: sql.NullString{String: accent, Valid: accent != ""}})
 }

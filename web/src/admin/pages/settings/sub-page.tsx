@@ -2,10 +2,10 @@
 // what order, with the page itself next to the form. One draft for the page's settings,
 // saved together; images, instructions and the apps' downloads are saved as they are made
 // (the apps' are every page's, #278). With a group (#290) the editor edits the group's own
-// page: its clients see it in place of the panel's, while the brand, its colour, the images,
-// the instructions and the apps' downloads stay the panel's. The admin's texts have
-// translations into the page's languages: one language is picked for the whole editor, and the
-// preview shows the page in it.
+// page: its clients see it in place of the panel's, with a brand name, colour, logo and
+// background of the group's own where it has them (#278); the instructions and the apps stay
+// the panel's. The admin's texts have translations into the page's languages: one language is
+// picked for the whole editor, and the preview shows the page in it.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useBlocker } from "@tanstack/react-router";
 import { RotateCcw } from "lucide-react";
@@ -30,7 +30,7 @@ import { AppsSection } from "./sub-page/apps";
 import { BlocksSection } from "./sub-page/blocks";
 import { BrandSection } from "./sub-page/brand";
 import { CSSSection, LookSection } from "./sub-page/look";
-import { COLOR, type Form, type Set, type View } from "./sub-page/parts";
+import { COLOR, type Asset, type Form, type Set, type View } from "./sub-page/parts";
 import { Preview } from "./sub-page/preview";
 import { langOfField } from "./sub-page/text-edits";
 
@@ -39,8 +39,8 @@ export type SubPagePart = (typeof SETTINGS_PARTS.page)[number];
 
 type Section = SubPagePart;
 
-/** The group whose own page the editor edits, as the editor tells it. */
-type PageGroup = { id: number; name: string; own: boolean };
+/** The group whose own page the editor edits, as the editor tells it, with its own brand ("": the panel's) and images. */
+type PageGroup = { id: number; name: string; own: boolean; brand: string; accent: string; logo?: Asset; background?: Asset };
 
 function useSubPage() {
   return useQuery({ queryKey: qk.subPage, queryFn: ({ signal }) => unwrap(api.GET("/api/v1/sub-page", { signal })) });
@@ -92,7 +92,13 @@ function GroupPageSettings({ group, section, onSection }: { group: number; secti
               {t("settings.page.groupBack")}
             </Link>
           </div>
-          <Editor key={group} v={v} section={section} setSection={onSection} group={{ id: group, name: g?.name ?? "", own: v.own }} />
+          <Editor
+            key={group}
+            v={v}
+            section={section}
+            setSection={onSection}
+            group={{ id: group, name: g?.name ?? "", own: v.own, brand: v.own_brand, accent: v.own_brand_accent, logo: v.own_logo, background: v.own_background }}
+          />
         </>
       )}
     </QueryBoundary>
@@ -102,7 +108,7 @@ function GroupPageSettings({ group, section, onSection }: { group: number; secti
 function Editor({ v, section, setSection, group }: { v: View; section: Section; setSection: (s: Section) => void; group?: PageGroup }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const { draft, setDraft, dirty, reset } = useDraft<Form>({ config: v.config, brand_accent: v.brand_accent });
+  const { draft, setDraft, dirty, reset } = useDraft<Form>({ config: v.config, brand_accent: group ? group.accent : v.brand_accent, brand: group ? group.brand : v.brand });
   // The platform the apps section edits: the preview opens the same tab.
   const [appsTab, setAppsTab] = useState<Platform>("ios");
   // The language the admin's texts are edited in: the preview shows the page in it too.
@@ -111,24 +117,28 @@ function Editor({ v, section, setSection, group }: { v: View; section: Section; 
   const [resetting, setResetting] = useState(false);
   const set: Set = (f) => setDraft((d) => ({ ...d, config: f(d.config) }));
   const save = useMutation({
-    mutationFn: (f: Form): Promise<View> => {
-      // A group's page is its document alone: the brand's colour is the panel's.
-      if (group) return groupActions.putPage({ id: group.id, config: f.config });
+    mutationFn: async (f: Form): Promise<{ saved: View; next: Form }> => {
+      // A group's page goes with the group's own brand; the panel's name is the general settings'.
+      if (group) {
+        const saved = await groupActions.putPage({ id: group.id, config: f.config, brand: f.brand.trim(), brand_accent: f.brand_accent.trim().toUpperCase() });
+        return { saved, next: { config: saved.config, brand_accent: saved.own_brand_accent, brand: saved.own_brand } };
+      }
       const body: Schemas["PutSubPageInputBody"] = { config: f.config };
       if (f.brand_accent !== v.brand_accent) body.brand_accent = f.brand_accent.trim().toUpperCase();
-      return unwrap(api.PUT("/api/v1/sub-page", { body }));
+      const saved = await unwrap(api.PUT("/api/v1/sub-page", { body }));
+      return { saved, next: { config: saved.config, brand_accent: saved.brand_accent, brand: saved.brand } };
     },
-    onSuccess: (data) => {
+    onSuccess: ({ saved, next }) => {
       if (group) {
-        qc.setQueryData(qk.groupPage(group.id), data);
+        qc.setQueryData(qk.groupPage(group.id), saved);
         void qc.invalidateQueries({ queryKey: qk.groups });
       } else {
-        qc.setQueryData(qk.subPage, data);
+        qc.setQueryData(qk.subPage, saved);
         void qc.invalidateQueries({ queryKey: qk.settings });
       }
-      // The draft as the server keeps it (the colour in capitals): else the bar and the
-      // question on leaving stayed after the save.
-      setDraft({ config: data.config, brand_accent: data.brand_accent });
+      // The draft as the server keeps it (the colour in capitals, the name trimmed): else the
+      // bar and the question on leaving stayed after the save.
+      setDraft(next);
       toast.ok(group ? t("settings.page.groupSaved", { name: group.name }) : t("settings.page.saved"));
     },
     onError: (e) => {
@@ -144,7 +154,12 @@ function Editor({ v, section, setSection, group }: { v: View; section: Section; 
     },
   });
   const errors = fieldErrors(save.error);
-  const accentMissing = draft.config.look.accent === "brand" && !COLOR.test(draft.brand_accent.trim());
+  // A group's own page without a colour of its own takes the panel's.
+  const accentShown = draft.brand_accent.trim() || (group ? v.brand_accent : "");
+  const accentMissing = draft.config.look.accent === "brand" && !COLOR.test(accentShown);
+  // The preview shows the page as the group's clients will: the group's own brand over the panel's.
+  const shown: View = group ? { ...v, brand: draft.brand.trim() || v.brand, logo: group.logo ?? v.logo, background: group.background ?? v.background } : v;
+  const shownDraft: Form = group ? { ...draft, brand_accent: accentShown } : draft;
   const submit = () => {
     if (accentMissing) {
       setSection("look");
@@ -165,11 +180,30 @@ function Editor({ v, section, setSection, group }: { v: View; section: Section; 
 
   return (
     <>
-      <WithPreview title={t("settings.page.preview")} preview={(bare) => <Preview v={v} draft={draft} platform={section === "apps" ? appsTab : undefined} bare={bare} lang={lang} setLang={setLang} />}>
+      <WithPreview title={t("settings.page.preview")} preview={(bare) => <Preview v={shown} draft={shownDraft} platform={section === "apps" ? appsTab : undefined} bare={bare} lang={lang} setLang={setLang} />}>
             {section === "look" ? (
-              <LookSection draft={draft} setDraft={setDraft} set={set} errors={errors} accentMissing={accentMissing} background={v.background} accentShared={!!group} />
+              <LookSection
+                draft={draft}
+                setDraft={setDraft}
+                set={set}
+                errors={errors}
+                accentMissing={accentMissing}
+                background={group ? group.background : v.background}
+                group={group ? { id: group.id, accent: v.brand_accent } : undefined}
+              />
             ) : section === "brand" ? (
-              <BrandSection draft={draft} setDraft={setDraft} set={set} errors={errors} logo={v.logo} brandName={v.brand} lang={lang} setLang={setLang} />
+              <BrandSection
+                draft={draft}
+                setDraft={setDraft}
+                set={set}
+                errors={errors}
+                logo={group ? group.logo : v.logo}
+                shownLogo={shown.logo}
+                brandName={v.brand}
+                group={group?.id}
+                lang={lang}
+                setLang={setLang}
+              />
             ) : section === "blocks" ? (
               <BlocksSection config={draft.config} set={set} errors={errors} announce={setLive} lang={lang} setLang={setLang} />
             ) : section === "apps" ? (

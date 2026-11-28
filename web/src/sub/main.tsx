@@ -1,7 +1,7 @@
 import "../styles/app.css";
 import "../styles/fonts-mono.css";
 import "./look.css";
-import { StrictMode, useCallback, useEffect, useRef, useState } from "react";
+import { StrictMode, createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ErrorBoundary } from "../components/error-boundary";
 import { LangSwitch } from "../components/lang";
@@ -10,7 +10,7 @@ import { initI18n, t, useLocale } from "../i18n";
 import { subDicts } from "../i18n/sub";
 import { appLink, type IconSource } from "./apps";
 import { hashParams, initData, json, okData, openOutside, pageURL, postJSON, request, subRoot, tgEvent, tgMode, tokenOf, webShopMode } from "./net";
-import { applyLook, PLATFORMS, readPage, titleOf, type DocView } from "./page";
+import { applyCSS, applyLook, PLATFORMS, readPage, titleOf, type DocView, type PagePublic } from "./page";
 import { FreePlan, loadShop, Shop, type ShopData } from "./shop";
 import { BrowserShop } from "./browser-shop";
 import { PromoSection } from "./promo";
@@ -44,12 +44,17 @@ const pageRoot = new URL(".", document.baseURI).href.replace(/\/$/, "");
 const asset = (path?: string) => (path ? pageRoot + "/" + path : undefined);
 const appIconSrc: IconSource = (app) => asset(app.icon.path);
 applyLook(page, asset);
-const config = page.config;
 
-function SubPage() {
+// The page on screen: the one the HTML came with, or in the Mini App the subscriber's own (a
+// group's own page and brand) once their subscription is known (SubPage).
+const PageContext = createContext<PagePublic>(page);
+
+function SubPage({ onPage }: { onPage: (p: PagePublic) => void }) {
   // Texts are read at render time: follow a language switch without remounting the page
   // (a remount would sign in to the Mini App and fetch everything again).
   const locale = useLocale();
+  const pub = useContext(PageContext);
+  const config = pub.config;
   // The info that came for one subscription's address; it is shown only while that address
   // is the one on screen, so a late answer of another subscription never takes its place.
   const [info, setInfo] = useState<{ url: string; data: Info } | null>(null);
@@ -198,6 +203,28 @@ function SubPage() {
     return () => ctl.abort();
   }, [subURL, loadInfo]);
 
+  // The Mini App opens with the page for everyone: the subscriber's own (a group's own page
+  // and brand) takes its place once their subscription is on screen. One that does not come
+  // leaves the page for everyone, which serves every subscriber.
+  const [pageFor, setPageFor] = useState("");
+  useEffect(() => {
+    if (!tgMode || !subURL) return;
+    const ctl = new AbortController();
+    request(subURL + "/page", { signal: ctl.signal })
+      .then((r) => json<{ page: PagePublic; css?: string }>(r))
+      .then((d) => {
+        if (ctl.signal.aborted) return;
+        applyLook(d.page, asset);
+        applyCSS(d.css ?? "");
+        onPage(d.page);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!ctl.signal.aborted) setPageFor(subURL);
+      });
+    return () => ctl.abort();
+  }, [subURL, onPage]);
+
   // The Mini App sends an app's "Add" to the browser as #open=<app id>: open it once, right
   // away. The mark is dropped from the address, or a reload and every refresh of the info
   // would ask the system to open the app again.
@@ -208,10 +235,10 @@ function SubPage() {
     if (!want) return;
     launched.current = true;
     history.replaceState(null, "", location.pathname + location.search);
-    const app = PLATFORMS.flatMap((k) => page.catalog[k]).find((a) => a.id === want && !current.blocked_apps?.includes(a.id));
+    const app = PLATFORMS.flatMap((k) => pub.catalog[k]).find((a) => a.id === want && !current.blocked_apps?.includes(a.id));
     const link = app && appLink(app, { url: subURL, brand: current.brand, happ: current.happ_link });
     if (link) location.href = link;
-  }, [current, subURL]);
+  }, [current, subURL, pub]);
 
   // An instruction opens as a step of the history: back (the browser's, the phone's or
   // Telegram's button) returns to the page where it was left.
@@ -394,7 +421,7 @@ function SubPage() {
       </Shell>
     );
   }
-  if (!current) {
+  if (!current || (tgMode && pageFor !== subURL)) {
     return (
       <Shell>
         {tgMode ? (
@@ -414,7 +441,7 @@ function SubPage() {
       <Shell brand={current.brand}>
         <DocScreen
           key={docId}
-          item={page.docs.find((d) => d.id === docId)}
+          item={pub.docs.find((d) => d.id === docId)}
           load={() => request(`${subURL}/docs/${docId}`).then((r) => json<DocView>(r))}
           onBack={() => history.back()}
           tgMode={tgMode}
@@ -447,8 +474,8 @@ function SubPage() {
         info={current}
         subURL={subURL}
         tgMode={tgMode}
-        docs={page.docs}
-        catalog={page.catalog}
+        docs={pub.docs}
+        catalog={pub.catalog}
         iconSrc={appIconSrc}
         selling={tgMode && !!shop?.offers.length}
         buy={buy}
@@ -495,10 +522,22 @@ function WebShopPage() {
 
 function Shell({ brand, children }: { brand?: string; children: React.ReactNode }) {
   const locale = useLocale();
+  const pub = useContext(PageContext);
   return (
-    <PageShell config={config} brand={brand ?? page.brand} logo={asset(page.logo)} lang={locale} right={<LangSwitch className="ml-auto" />}>
+    <PageShell config={pub.config} brand={brand ?? pub.brand} logo={asset(pub.logo)} lang={locale} right={<LangSwitch className="ml-auto" />}>
       {children}
     </PageShell>
+  );
+}
+
+/** The page on screen with its backdrop: the HTML's, then in the Mini App the subscriber's own. */
+function Root() {
+  const [shown, setShown] = useState(page);
+  return (
+    <PageContext.Provider value={shown}>
+      <PageBackdrop look={shown.config.look} image={asset(shown.background)} />
+      {webShopMode ? <WebShopPage /> : <SubPage onPage={setShown} />}
+    </PageContext.Provider>
   );
 }
 
@@ -509,8 +548,7 @@ void initI18n(subDicts).then(() => {
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
       <ErrorBoundary>
-        <PageBackdrop look={config.look} image={asset(page.background)} />
-        {webShopMode ? <WebShopPage /> : <SubPage />}
+        <Root />
       </ErrorBoundary>
     </StrictMode>,
   );

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appIcon, appLink, appNote, appRows, downloadHref, downloadLabel, linkProblem, waysToGet, type CatalogApp, type IconSource } from "./apps";
+import { appIcon, appLink, appNote, appRows, downloadHref, downloadLabel, linkProblem, waysToGet, withoutDownloads, type CatalogApp, type IconSource } from "./apps";
 
 const url = "https://vpn.example.com/sub/k3J9fQ2mXa7d";
 const enc = encodeURIComponent;
@@ -113,6 +113,17 @@ describe("appLink", () => {
 
   it("gives no link when what fills it breaks the link", () => {
     expect(appLink(app("myapp://add/{url}"), { url: "https://x.example/a b", brand: "b" })).toBeNull();
+  });
+});
+
+describe("withoutDownloads", () => {
+  it("takes every button away and leaves the rest of the apps and the catalogue as they were", () => {
+    const happ = { id: "happ", name: "Happ", family: "xray", own: false, icon: { kind: "letter" }, link: "happ://add/{url}", crypt: true, note: "easiest", doc: 3, downloads: [{ kind: "appstore", url: "https://apps.apple.com/app/id1" }] } as CatalogApp;
+    const catalog = { ios: [happ], android: [], windows: [], macos: [{ ...happ, id: "kabosu" }], linux: [] };
+    const bare = withoutDownloads(catalog);
+    expect(bare.ios).toEqual([{ ...happ, downloads: [] }]);
+    expect(bare.macos[0]!.downloads).toEqual([]);
+    expect(catalog.ios[0]!.downloads).toHaveLength(1);
   });
 });
 

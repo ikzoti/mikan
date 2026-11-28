@@ -23,8 +23,12 @@ const (
 	AssetBackground = "background"
 )
 
-// AssetLimit is how big an image of name may be; 0: no such image.
+// AssetLimit is how big an image of name may be; 0: no such image. A group's own logo and
+// background (GroupAsset) may be as big as the panel's.
 func AssetLimit(name string) int {
+	if base, _, ok := GroupOfAsset(name); ok {
+		name = base
+	}
 	switch {
 	case name == AssetLogo:
 		return 512 << 10
@@ -189,8 +193,7 @@ type Public struct {
 	Logo       string    `json:"logo,omitempty"`
 	Background string    `json:"background,omitempty"`
 	Docs       []DocItem `json:"docs"`
-	// Catalog is the catalogue without the apps the page hides (catalogOf, which keeps for a
-	// group's page those the panel's shows): Config.Apps orders it and hides those.
+	// Catalog is the catalogue without the apps the page hides (catalogOf): Config.Apps orders it.
 	Catalog AppCatalog `json:"catalog"`
 	css     string
 }
@@ -212,13 +215,18 @@ func (s *Service) Public(ctx context.Context, group int64, brand, accent string)
 	if fatal(docsErr) {
 		return Public{}, docsErr
 	}
-	catalog, appsErr := s.catalogOf(ctx, c.Apps, own, assets)
+	catalog, appsErr := s.catalogOf(ctx, c.Apps, assets)
 	if fatal(appsErr) {
 		return Public{}, appsErr
 	}
 	p := sentPage(c, brand)
 	p.Docs, p.Catalog = docs, catalog
-	p.linkImages(assets, accent)
+	// A group's own page shows the group's own images where it has them.
+	var images int64
+	if own {
+		images = group
+	}
+	p.linkImages(assets, accent, images)
 	published := make(map[int64]bool, len(docs))
 	for _, d := range docs {
 		published[d.ID] = true
@@ -246,20 +254,21 @@ func sentPage(c Page, brand string) Public {
 	return p
 }
 
-// linkImages links the page's images among assets, and the brand's colour when the page takes
-// it. An image chosen but gone shows as the default: the letter, the theme.
-func (p *Public) linkImages(assets map[string]PageAsset, accent string) {
+// linkImages links the page's images among assets (group's own over the panel's, ImageOf), and
+// the brand's colour when the page takes it. An image chosen but gone shows as the default:
+// the letter, the theme.
+func (p *Public) linkImages(assets map[string]PageAsset, accent string, group int64) {
 	c := &p.Config
 	if c.Look.Accent == "brand" && ValidColor(accent) {
 		p.Accent = accent
 	}
-	if a, ok := assets[AssetLogo]; ok {
-		p.Logo = AssetPath(AssetLogo, a.Hash)
+	if name, a, ok := ImageOf(assets, AssetLogo, group); ok {
+		p.Logo = AssetPath(name, a.Hash)
 	} else if c.Brand.Logo == "image" {
 		c.Brand.Logo = "letter"
 	}
-	if a, ok := assets[AssetBackground]; ok && c.Look.Background.Kind == "image" {
-		p.Background = AssetPath(AssetBackground, a.Hash)
+	if name, a, ok := ImageOf(assets, AssetBackground, group); ok && c.Look.Background.Kind == "image" {
+		p.Background = AssetPath(name, a.Hash)
 	} else if c.Look.Background.Kind == "image" {
 		c.Look.Background.Kind = "theme"
 	}
@@ -285,25 +294,18 @@ func (s *Service) publishedDocs(ctx context.Context) ([]DocItem, error) {
 }
 
 // catalogOf is the catalogue the page of lists sends its visitors. The apps the page hides are
-// not in it, so an app only one group's page shows reaches that group's clients alone. A
-// group's own page (own) keeps those the panel's page shows as well: the Mini App shows the
-// panel's page, and its "Add" goes on in the subscriber's own page by the app's id (#open=,
-// web/src/sub/main.tsx).
-func (s *Service) catalogOf(ctx context.Context, lists PageApps, own bool, assets map[string]PageAsset) (AppCatalog, error) {
+// not in it, so an app only one group's page shows reaches that group's clients alone: the
+// Mini App shows a subscriber their own page too (/<token>/page), where its "Add" goes on.
+func (s *Service) catalogOf(ctx context.Context, lists PageApps, assets map[string]PageAsset) (AppCatalog, error) {
 	edits, unread := s.Apps(ctx)
 	if fatal(unread) {
 		return AppCatalog{}, unread
 	}
-	pages := []PageApps{lists}
-	if own {
-		panel, err := s.Page(ctx)
-		if err != nil {
-			return AppCatalog{}, err
-		}
-		pages = append(pages, panel.Apps)
-	}
 	c := edits.Catalog(AppIcons(assets))
-	c.keepShown(pages...)
+	c.keepShown(lists)
+	if lists.DownloadsOff {
+		c.dropDownloads()
+	}
 	return c, unread
 }
 
@@ -365,13 +367,16 @@ func (p Public) Head(root string) []byte {
 	b.WriteString(`<script type="application/json" id="mikan-page">`)
 	b.Write(data)
 	b.WriteString(`</script>`)
-	if css := CleanCSS(p.css); css != "" {
+	if css := p.Style(); css != "" {
 		b.WriteString(`<style id="mikan-css">`)
 		b.WriteString(css)
 		b.WriteString(`</style>`)
 	}
 	return b.Bytes()
 }
+
+// Style is the admin's own CSS of the page as the page takes it (CleanCSS).
+func (p Public) Style() string { return CleanCSS(p.css) }
 
 // DocView is an instruction with its text, as the page opens it.
 type DocView struct {

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"mikan/internal/panel/domain"
+	"mikan/internal/panel/subpage"
 	"mikan/internal/sub/apps"
 	submodel "mikan/internal/sub/model"
 	"mikan/internal/sub/serve"
@@ -45,6 +46,42 @@ func TestForGroup(t *testing.T) {
 		if c := base.forGroup(g); !reflect.DeepEqual(c.Config, base.Config) {
 			t.Errorf("group %d: %+v", g, c.Config)
 		}
+	}
+}
+
+// A group's own brand goes with its own page: its name, colour and logo for its clients and
+// their apps. A group without its own page, or what a group leaves unset, keeps the panel's.
+func TestForGroupBrand(t *testing.T) {
+	name, accent := "VIP VPN", "#FF8800"
+	panel := serve.AppBrand{Enabled: true, Accent: "#112233", LogoURL: "https://vpn.example.com/sub/brand/logo?v=1"}
+	base := Config{Config: serve.Config{Brand: "Mikan", App: panel}}
+	base.Appearance = map[int64]domain.GroupAppearance{
+		7: {Page: true, Brand: &name, BrandAccent: &accent},
+		8: {Brand: &name, BrandAccent: &accent},
+		9: {Page: true},
+	}
+	base.GroupLogos = map[int64]string{7: "https://vpn.example.com/sub/brand/logo-g7?v=2", 9: "https://vpn.example.com/sub/brand/logo-g9?v=3"}
+	if got := base.forGroup(7); got.Brand != name || got.App.Accent != accent || got.App.LogoURL != base.GroupLogos[7] {
+		t.Fatalf("group 7: %+v", got.Config)
+	}
+	if got := base.forGroup(8); got.Brand != "Mikan" || got.App != panel {
+		t.Fatalf("a group without its own page: %+v", got.Config)
+	}
+	if got := base.forGroup(9); got.Brand != "Mikan" || got.App.Accent != panel.Accent || got.App.LogoURL != base.GroupLogos[9] {
+		t.Fatalf("a page with a logo alone: %+v", got.Config)
+	}
+	if base.Brand != "Mikan" || base.App != panel {
+		t.Fatalf("the shared config changed: %+v", base.Config)
+	}
+}
+
+// The apps of a group's clients take the group's own logo; the panel's and the other images
+// are not a group's logo.
+func TestGroupLogos(t *testing.T) {
+	assets := map[string]subpage.PageAsset{"logo": {Hash: "a"}, "logo-g7": {Hash: "b"}, "background-g7": {Hash: "c"}, "app-happ": {Hash: "d"}}
+	want := map[int64]string{7: "https://vpn.example.com/sub/" + subpage.AssetPath("logo-g7", "b")}
+	if got := groupLogos("https://vpn.example.com/sub", assets); !reflect.DeepEqual(got, want) {
+		t.Fatalf("group logos %v, want %v", got, want)
 	}
 }
 

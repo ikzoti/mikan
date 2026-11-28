@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useBlockedAppIds, useNodes, useSettings, useSubPageApps } from "../../../../api/hooks";
 import { Segmented } from "../../../../components/ui";
 import { t, useLocale } from "../../../../i18n";
-import { NO_APPS, type Platform } from "../../../../sub/apps";
+import { NO_APPS, withoutDownloads, type Platform } from "../../../../sub/apps";
 import type { ShopData } from "../../../../sub/shop";
 import type { Info } from "../../../../sub/types";
 import { firstPlatform } from "../../../../sub/view";
@@ -119,7 +119,7 @@ export function Preview({ v, draft, platform: editing, bare, lang, setLang }: Pr
         logo={imageURL(v.logo)}
         background={look.background.kind === "image" ? imageURL(v.background) : undefined}
         docs={published}
-        catalog={apps.data?.catalog ?? NO_APPS}
+        catalog={draft.config.apps.downloads_off ? withoutDownloads(apps.data?.catalog ?? NO_APPS) : (apps.data?.catalog ?? NO_APPS)}
         iconSrc={iconSourceOf(apps.data?.icons)}
         info={info}
         subURL={SAMPLE_SUB_URL}
