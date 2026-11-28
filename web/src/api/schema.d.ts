@@ -2540,6 +2540,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sub-page/apps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Приложения страницы подписки: встроенные, правки и свои */
+        get: operations["get-sub-page-apps"];
+        /** Сохранить приложения страницы подписки */
+        put: operations["update-sub-page-apps"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sub-page/apps/{id}/icon": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Значок приложения страницы подписки */
+        get: operations["get-sub-page-app-icon"];
+        /** Загрузить значок приложения страницы подписки */
+        put: operations["put-sub-page-app-icon"];
+        post?: never;
+        /** Убрать значок приложения страницы подписки */
+        delete: operations["delete-sub-page-app-icon"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sub-page/images/{name}": {
         parameters: {
             query?: never;
@@ -4152,6 +4189,36 @@ export interface components {
             public_enabled?: boolean;
             public_summary?: boolean;
         };
+        AppCatalog: {
+            android: components["schemas"]["CatalogApp"][];
+            ios: components["schemas"]["CatalogApp"][];
+            linux: components["schemas"]["CatalogApp"][];
+            macos: components["schemas"]["CatalogApp"][];
+            windows: components["schemas"]["CatalogApp"][];
+        };
+        AppDownload: {
+            /** @description Надпись кнопки на языках страницы (ru, en); где перевода нет, label */
+            i18n?: {
+                [key: string]: components["schemas"]["LabelText"];
+            };
+            /**
+             * @description appstore, googleplay и github: магазины и релизы на GitHub; mirror: своя копия приложения; link: другая страница, с надписью
+             * @enum {string}
+             */
+            kind: "appstore" | "googleplay" | "github" | "mirror" | "link";
+            /** @description Надпись кнопки; без неё кнопку называет kind. У link обязательна */
+            label?: string;
+            /** @description https:// */
+            url: string;
+        };
+        AppIcon: {
+            emoji?: string;
+            /**
+             * @description letter: первая буква названия; emoji; image: картинка из PUT /api/v1/sub-page/apps/{id}/icon
+             * @enum {string}
+             */
+            kind: "letter" | "emoji" | "image";
+        };
         ApplyTariffInputBody: {
             /** @description Лимит устройств (докупленные остаются сверху) и как он считается */
             devices?: boolean;
@@ -4168,6 +4235,14 @@ export interface components {
              * @description Скольким подпискам тарифа применены его части
              */
             applied: number;
+        };
+        AppsConfig: {
+            /** @description Свои приложения админа, до 20, в этом порядке: на каждой платформе приложение на mihomo идёт за встроенными на mihomo, остальные после всех встроенных */
+            own: components["schemas"]["OwnApp"][];
+            /** @description Правки встроенных приложений по их id (happ, koala…); приложения без правок здесь нет */
+            presets: {
+                [key: string]: components["schemas"]["PresetEdit"];
+            };
         };
         Attempt: {
             /** Format: date-time */
@@ -4361,6 +4436,11 @@ export interface components {
             /** @description Ссылка подписки; пусто, если ключу или оператору ссылки не показываются */
             sub_url: string;
         };
+        BlockText: {
+            /** @description Только у блока text: Markdown */
+            text?: string;
+            title?: string;
+        };
         BotPreview: {
             /**
              * Format: int64
@@ -4470,6 +4550,9 @@ export interface components {
              * @description Байты от устройства с тех пор, как оно привязано (до 0.5.0.5 не считались)
              */
             traffic_up: number;
+        };
+        BrandText: {
+            subtitle: string;
         };
         BroadcastInputBody: {
             /** @description Текст с Markdown, как тексты бота; {brand} — название сервиса */
@@ -4743,6 +4826,43 @@ export interface components {
             exits: components["schemas"]["CascadeExit"][];
             /** @description Служебный вход для других нод; есть, когда кто-то выходит через эту ноду */
             relay?: components["schemas"]["CascadeRelay"];
+        };
+        CatalogApp: {
+            /** @description Открывает шифрованную ссылку Happ вместо link, когда панель её даёт */
+            crypt: boolean;
+            /**
+             * Format: int64
+             * @description Инструкция по шагам: id из GET /api/v1/sub-docs или 0, если её нет
+             */
+            doc: number;
+            /** @description Кнопки «Скачать» */
+            downloads: components["schemas"]["AppDownload"][];
+            /**
+             * @description Ядро приложения
+             * @enum {string}
+             */
+            family: "mihomo" | "xray" | "singbox" | "other";
+            /** @description Подпись своего приложения на языках страницы (ru, en); где перевода нет, note */
+            i18n?: {
+                [key: string]: components["schemas"]["NoteText"];
+            };
+            icon: components["schemas"]["CatalogIcon"];
+            /** @description У встроенных это id из списка известных приложений (GET /api/v1/sub-apps): заблокированное там страница не показывает. У своих приложений id начинается с own- */
+            id: string;
+            /** @description Ссылка, которая добавляет подписку в приложение. Подстановки: {url} (адрес подписки как есть), {url_enc} (он же в percent-encoding), {name} (бренд в percent-encoding). Пусто у своего приложения без кнопки «Добавить» */
+            link: string;
+            name: string;
+            /** @description Подпись под названием. У встроенных это её ключ: easiest, free, stable, openSource, modern, bestWindows, tun, oneButton, allProtocols, everything; у своих приложений это текст */
+            note: string;
+            /** @description Своё приложение админа (apps.own) */
+            own: boolean;
+        };
+        CatalogIcon: {
+            emoji?: string;
+            /** @enum {string} */
+            kind: "letter" | "emoji" | "image";
+            /** @description Картинка: путь от пути подписки, как у логотипа (brand/app-<id>?v=<hash>) */
+            path?: string;
         };
         CertCheck: {
             /** @description Что именно, текст — certCheck.<code> в языке панели */
@@ -5229,6 +5349,11 @@ export interface components {
             /** Format: date-time */
             last_seen: string;
             online: boolean;
+        };
+        DocText: {
+            /** @description Markdown */
+            body?: string;
+            title?: string;
         };
         EgressFilter: {
             /** @description Домены вместе с поддоменами: example.com */
@@ -6124,6 +6249,9 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        LabelText: {
+            label: string;
+        };
         LegacyLinks: {
             /** @description Старые ссылки сейчас открываются: задан их путь, а для подписанных ещё и секрет старой панели */
             active: boolean;
@@ -6814,6 +6942,9 @@ export interface components {
             /** @description О чём заметка: группа, условие TYPE,VALUE, список, ключ политики DNS, сервер или geosite:NAME */
             group: string;
         };
+        NoteText: {
+            note: string;
+        };
         Notify: {
             expire_1d: boolean;
             expire_3d: boolean;
@@ -6867,6 +6998,39 @@ export interface components {
             users_active: number;
             /** Format: int64 */
             users_total: number;
+        };
+        OwnApp: {
+            /**
+             * @description Ядро приложения. Приложение на mihomo идёт за встроенными на mihomo, раньше остальных; другие идут после всех встроенных
+             * @enum {string}
+             */
+            family: "mihomo" | "xray" | "singbox" | "other";
+            /** @description Значок; без поля первая буква названия */
+            icon?: components["schemas"]["AppIcon"];
+            /** @description own- и от 1 до 12 букв a-z и цифр; его выбирает редактор, потом он не меняется */
+            id: string;
+            /** @description Ссылка, которая добавляет подписку, с теми же подстановками, что у встроенных: {url}, {url_enc}, {name}. Пустая ссылка: без кнопки «Добавить» */
+            link: string;
+            name: string;
+            /** @description Платформы приложения, хотя бы одна: ios, android, windows, macos, linux */
+            platforms: {
+                [key: string]: components["schemas"]["OwnPlatform"];
+            };
+        };
+        OwnPlatform: {
+            /**
+             * Format: int64
+             * @description Инструкция по шагам: id из GET /api/v1/sub-docs; 0 или нет поля: без инструкции
+             */
+            doc?: number;
+            /** @description Кнопки «Скачать» */
+            downloads?: components["schemas"]["AppDownload"][];
+            /** @description Подпись на языках страницы (ru, en); где перевода нет, note */
+            i18n?: {
+                [key: string]: components["schemas"]["NoteText"];
+            };
+            /** @description Подпись под названием */
+            note?: string;
         };
         PackageBody: {
             /**
@@ -6949,7 +7113,9 @@ export interface components {
             og: components["schemas"]["PageOG"];
         };
         PageAppList: {
+            /** @description id скрытых приложений */
             hidden: string[];
+            /** @description id приложений каталога (happ, koala…), которые идут первыми, в этом порядке; остальные идут за ними */
             order: string[];
         };
         PageApps: {
@@ -6997,6 +7163,10 @@ export interface components {
             to: string;
         };
         PageBlock: {
+            /** @description Заголовок и текст блока text на языках страницы (ru, en): посетитель видит свой язык, а где перевода нет, title и text */
+            i18n?: {
+                [key: string]: components["schemas"]["BlockText"];
+            };
             id: string;
             /** @description Блок links: кнопки-ссылки */
             links?: components["schemas"]["PageLink"][];
@@ -7010,6 +7180,10 @@ export interface components {
         };
         PageBrand: {
             emoji: string;
+            /** @description Строка под названием на языках страницы (ru, en): посетитель видит свой язык, а где перевода нет, subtitle */
+            i18n?: {
+                [key: string]: components["schemas"]["BrandText"];
+            };
             /**
              * @description letter — первая буква бренда, image — загруженный логотип, emoji, none — без значка
              * @enum {string}
@@ -7020,6 +7194,10 @@ export interface components {
         };
         PageLink: {
             emoji?: string;
+            /** @description Текст кнопки на языках страницы (ru, en); где перевода нет, label */
+            i18n?: {
+                [key: string]: components["schemas"]["LabelText"];
+            };
             label: string;
             /** @description https://, http:// или tg:// */
             url: string;
@@ -7596,6 +7774,15 @@ export interface components {
             /** @description Применённые платежи за 30 дней */
             totals: components["schemas"]["PaymentTotal"][];
         };
+        PlatformEdit: {
+            /**
+             * Format: int64
+             * @description Инструкция по шагам: id из GET /api/v1/sub-docs; 0 или нет поля: без инструкции
+             */
+            doc?: number;
+            /** @description Свои кнопки «Скачать» вместо встроенных: пустой список убирает кнопки, без поля остаются встроенные */
+            downloads?: components["schemas"]["AppDownload"][];
+        };
         PoolInputBody: {
             name: string;
         };
@@ -7670,6 +7857,14 @@ export interface components {
         };
         PosturePlanOutputBody: {
             changes: components["schemas"]["PostureChange"][];
+        };
+        PresetEdit: {
+            /** @description Свой значок; без поля первая буква названия */
+            icon?: components["schemas"]["AppIcon"];
+            /** @description По платформам приложения: ios, android, windows, macos, linux */
+            platforms?: {
+                [key: string]: components["schemas"]["PlatformEdit"];
+            };
         };
         Preview: {
             /** @description Пользователи, которых mikan не примет, с причиной */
@@ -7867,6 +8062,10 @@ export interface components {
             promo_codes: number;
             /** Format: int64 */
             successful_activations: number;
+        };
+        PutAppIconInputBody: {
+            /** @description Картинка в base64: PNG, JPEG или WebP до 128 КБ, лучше квадратная. SVG не принимается */
+            data: string;
         };
         PutGroupPageInputBody: {
             config: components["schemas"]["Page"];
@@ -8612,6 +8811,10 @@ export interface components {
             /** @description Markdown: заголовки #, списки, **жирный**, *курсив*, код в обратных кавычках, [ссылки](https://…), картинки ![](https://…) */
             body: string;
             emoji: string;
+            /** @description Заголовок и текст на языках страницы (ru, en), по тем же правилам. Без поля PUT оставляет переводы, какие были; {} их убирает */
+            i18n?: {
+                [key: string]: components["schemas"]["DocText"];
+            };
             /** @enum {string} */
             platform: "ios" | "android" | "windows" | "macos" | "linux" | "";
             published: boolean;
@@ -8621,6 +8824,10 @@ export interface components {
             /** @description Markdown */
             body: string;
             emoji: string;
+            /** @description Заголовок и текст на языках страницы (ru, en): посетитель видит свой язык, а где перевода нет, title и body */
+            i18n?: {
+                [key: string]: components["schemas"]["DocText"];
+            };
             /** Format: int64 */
             id: number;
             /** @description ios, android, windows, macos, linux; пусто — для всех */
@@ -8680,6 +8887,20 @@ export interface components {
             port: number;
             /** @description Клиенты получают этот сервер сейчас: подключение и нода включены */
             served: boolean;
+        };
+        SubPageAppsView: {
+            /** @description Что админ изменил у приложений и его свои приложения */
+            apps: components["schemas"]["AppsConfig"];
+            /** @description Каталог каждой страницы: встроенные приложения с правками, затем свои, по платформам, в порядке по умолчанию. Страница упорядочивает и скрывает их своими списками (config.apps) */
+            catalog: components["schemas"]["AppCatalog"];
+            /** @description Загруженные картинки значков, по id приложения */
+            icons: {
+                [key: string]: components["schemas"]["PageAsset"];
+            };
+            /** @description Встроенные приложения без правок: к ним ведёт «Сбросить» */
+            presets: components["schemas"]["AppCatalog"];
+            /** @description Сохранённый документ не читается (его правили вручную или записала более новая версия): apps пуст, страницы показывают встроенные приложения, а PUT заменит документ */
+            unreadable?: boolean;
         };
         SubPageView: {
             background?: components["schemas"]["PageAsset"];
@@ -16124,6 +16345,171 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SubPageView"];
                 };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-sub-page-apps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubPageAppsView"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "update-sub-page-apps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppsConfig"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubPageAppsView"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-sub-page-app-icon": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description id приложения: встроенного (happ…) или своего, уже сохранённого (own-…) */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description PNG, JPEG или WebP */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    "Content-Type"?: string;
+                    "X-Content-Type-Options"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": unknown;
+                    "image/png": unknown;
+                    "image/webp": unknown;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "put-sub-page-app-icon": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description id приложения: встроенного (happ…) или своего, уже сохранённого (own-…) */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutAppIconInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageAsset"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-sub-page-app-icon": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description id приложения: встроенного (happ…) или своего, уже сохранённого (own-…) */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Error */
             default: {

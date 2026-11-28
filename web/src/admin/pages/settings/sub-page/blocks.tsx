@@ -1,4 +1,5 @@
-// The blocks of the page in their order: which are shown, what they are called, their own text and links.
+// The blocks of the page in their order: which are shown, what they are called, their own text
+// and links, and those texts in the page's languages.
 import { ArrowDown, ArrowUp, ChevronDown, Link2, Plus, Trash2, Type } from "lucide-react";
 import { useState } from "react";
 import type { Schemas } from "../../../../api/client";
@@ -7,7 +8,11 @@ import { Button, Field } from "../../../../components/ui";
 import { t, type Key } from "../../../../i18n";
 import { safeHref } from "../../../../lib/url";
 import { CUSTOM_TYPES, MINI_APP_ONLY, type BlockType } from "../../../../sub/page";
-import { Card, MAX_CUSTOM, type Block, type Config, type Set } from "./parts";
+import type { TextLang } from "../../../../sub/texts";
+import { Card, MAX_CUSTOM, type Block, type Config, type LangProps, type Set } from "./parts";
+import { focusMoved, moved } from "./reorder";
+import { blockLacks, textOf, textPath, withTextOf } from "./text-edits";
+import { NoTranslation, TextLangNote, TextLangSwitch, textHint, textLabel } from "./text-lang";
 
 /** A block's usual heading on the page, for the placeholder of its own. */
 const USUAL: Partial<Record<BlockType, Key>> = {
@@ -37,24 +42,18 @@ function firstLine(md: string): string {
   return line.replace(/^[#>*\-\s]+/, "").slice(0, 60);
 }
 
-export function BlocksSection({ config, set, errors, announce }: { config: Config; set: Set; errors: Record<string, string>; announce: (text: string) => void }) {
+type Props = { config: Config; set: Set; errors: Record<string, string>; announce: (text: string) => void } & LangProps;
+
+export function BlocksSection({ config, set, errors, announce, lang, setLang }: Props) {
   const [open, setOpen] = useState<string | null>(null);
   const blocks = config.blocks;
   const custom = blocks.filter((b) => CUSTOM_TYPES.includes(b.type)).length;
   const setBlock = (i: number, patch: Partial<Block>) => set((c) => ({ ...c, blocks: c.blocks.map((b, j) => (j === i ? { ...b, ...patch } : b)) }));
   const move = (i: number, step: -1 | 1) => {
     const b = blocks[i]!;
-    set((c) => {
-      const next = [...c.blocks];
-      next.splice(i, 1);
-      next.splice(i + step, 0, b);
-      return { ...c, blocks: next };
-    });
+    set((c) => ({ ...c, blocks: moved(c.blocks, i, step) }));
     announce(t("settings.page.moved", { name: blockName(b), n: i + step + 1, total: blocks.length }));
-    window.requestAnimationFrame(() => {
-      const want = document.getElementById(`blk-${step < 0 ? "up" : "down"}-${b.id}`) as HTMLButtonElement | null;
-      (want && !want.disabled ? want : document.getElementById(`blk-${step < 0 ? "down" : "up"}-${b.id}`))?.focus();
-    });
+    focusMoved(step, `blk-up-${b.id}`, `blk-down-${b.id}`);
   };
   const add = (type: "text" | "links") => {
     const b: Block = type === "text" ? { id: newId(type), type, on: true, title: "", text: "" } : { id: newId(type), type, on: true, title: "", links: [{ label: "", url: "https://", emoji: "" }] };
@@ -64,7 +63,8 @@ export function BlocksSection({ config, set, errors, announce }: { config: Confi
   // Errors of a block's fields by its index, at the block (open it so they show).
   const blockErrors = (i: number) => Object.entries(errors).filter(([k]) => k.startsWith(`config.blocks[${i}]`));
   return (
-    <Card title={t("settings.page.blocks")} sub={t("settings.page.blocksSub")}>
+    <Card title={t("settings.page.blocks")} sub={t("settings.page.blocksSub")} aside={<TextLangSwitch value={lang} onChange={setLang} />}>
+      <TextLangNote lang={lang} className="mb-3" />
       <ul className="flex flex-col gap-2">
         {blocks.map((b, i) => {
           const expanded = open === b.id || blockErrors(i).length > 0;
@@ -95,9 +95,15 @@ export function BlocksSection({ config, set, errors, announce }: { config: Confi
                   <span className="w-9" aria-hidden />
                 )}
               </div>
+              {/* A line of its own under the name, which a phone leaves no room beside. */}
+              {lang && blockLacks(b, lang) ? (
+                <div className="mt-2 pl-13">
+                  <NoTranslation />
+                </div>
+              ) : null}
               {expanded && b.type !== "status" ? (
                 <div id={panel} className="mt-3 border-t border-[var(--hairline)] pt-3">
-                  <BlockSetup block={b} index={i} setBlock={(patch) => setBlock(i, patch)} errors={errors} />
+                  <BlockSetup block={b} index={i} setBlock={(patch) => setBlock(i, patch)} errors={errors} lang={lang} />
                   {CUSTOM_TYPES.includes(b.type) ? (
                     <Button
                       size="sm"
@@ -129,20 +135,40 @@ export function BlocksSection({ config, set, errors, announce }: { config: Confi
   );
 }
 
-function BlockSetup({ block: b, index: i, setBlock, errors }: { block: Block; index: number; setBlock: (patch: Partial<Block>) => void; errors: Record<string, string> }) {
+function BlockSetup({ block: b, index: i, setBlock, errors, lang }: { block: Block; index: number; setBlock: (patch: Partial<Block>) => void; errors: Record<string, string>; lang: TextLang }) {
   const at = (field: string) => errors[`config.blocks[${i}].${field}`];
-  const usual = USUAL[b.type];
+  const usualKey = USUAL[b.type];
+  const usual = usualKey ? t(usualKey) : "";
   const titleLabel = b.type === "telegram" || b.type === "support" ? t("settings.page.buttonText") : t("settings.page.blockTitle");
   const links = b.links ?? [];
   const setLink = (j: number, patch: Partial<Schemas["PageLink"]>) => setBlock({ links: links.map((l, k) => (k === j ? { ...l, ...patch } : l)) });
+  const title = textOf(b, lang, "title");
+  const titleHint = lang ? textHint(b.title, title) : usual ? t("settings.page.blockTitleHint") : t("settings.page.blockTitleNone");
   return (
     <>
-      <Field label={titleLabel} htmlFor={`blk-title-${b.id}`} hint={usual ? t("settings.page.blockTitleHint") : t("settings.page.blockTitleNone")} error={at("title")}>
-        <input id={`blk-title-${b.id}`} className="input" value={b.title} maxLength={60} placeholder={usual ? t(usual) : ""} onChange={(e) => setBlock({ title: e.target.value })} aria-invalid={!!at("title")} />
+      <Field label={textLabel(titleLabel, lang)} htmlFor={`blk-title-${b.id}`} hint={titleHint} error={at(textPath(lang, "title"))}>
+        <input
+          id={`blk-title-${b.id}`}
+          className="input"
+          value={title}
+          maxLength={60}
+          placeholder={lang ? b.title || usual : usual}
+          onChange={(e) => setBlock(withTextOf(b, lang, "title", e.target.value))}
+          aria-invalid={!!at(textPath(lang, "title"))}
+        />
       </Field>
       {b.type === "text" ? (
-        <Field label={t("settings.page.text")} htmlFor={`blk-text-${b.id}`} hint={t("settings.page.markdownHint")} error={at("text")}>
-          <textarea id={`blk-text-${b.id}`} className="input mono" rows={6} value={b.text ?? ""} maxLength={8000} onChange={(e) => setBlock({ text: e.target.value })} aria-invalid={!!at("text")} />
+        <Field label={textLabel(t("settings.page.text"), lang)} htmlFor={`blk-text-${b.id}`} hint={t("settings.page.markdownHint")} error={at(textPath(lang, "text"))}>
+          <textarea
+            id={`blk-text-${b.id}`}
+            className="input mono"
+            rows={6}
+            value={textOf(b, lang, "text")}
+            maxLength={8000}
+            placeholder={lang ? b.text : undefined}
+            onChange={(e) => setBlock(withTextOf(b, lang, "text", e.target.value))}
+            aria-invalid={!!at(textPath(lang, "text"))}
+          />
         </Field>
       ) : null}
       {b.type === "links" ? (
@@ -151,11 +177,19 @@ function BlockSetup({ block: b, index: i, setBlock, errors }: { block: Block; in
           <ul className="flex flex-col gap-2">
             {links.map((l, j) => {
               const urlErr = at(`links[${j}].url`) ?? (l.url && l.url !== "https://" && !safeHref(l.url, { tg: true }) ? t("errors.api.link_invalid") : undefined);
-              const labelErr = at(`links[${j}].label`);
+              const labelErr = at(`links[${j}].${textPath(lang, "label")}`);
               return (
                 <li key={j} className="grid grid-cols-[56px_minmax(0,1fr)_auto] gap-2">
                   <input className="input text-center" value={l.emoji ?? ""} maxLength={16} autoComplete="off" onChange={(e) => setLink(j, { emoji: e.target.value.trim() })} aria-label={t("settings.page.emoji")} />
-                  <input className="input" value={l.label} maxLength={40} placeholder={t("settings.page.linkLabel")} onChange={(e) => setLink(j, { label: e.target.value })} aria-label={t("settings.page.linkLabel")} aria-invalid={!!labelErr} />
+                  <input
+                    className="input"
+                    value={textOf(l, lang, "label")}
+                    maxLength={40}
+                    placeholder={lang ? l.label : t("settings.page.linkLabel")}
+                    onChange={(e) => setLink(j, withTextOf(l, lang, "label", e.target.value))}
+                    aria-label={textLabel(t("settings.page.linkLabel"), lang)}
+                    aria-invalid={!!labelErr}
+                  />
                   <button type="button" className="icon-btn self-center" onClick={() => setBlock({ links: links.filter((_, k) => k !== j) })} aria-label={t("settings.page.linkRemove", { name: l.label || String(j + 1) })}>
                     <Trash2 size={16} />
                   </button>

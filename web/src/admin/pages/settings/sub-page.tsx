@@ -1,8 +1,11 @@
 // Settings → Subscription page: how the page and the Mini App look, what they show and in
 // what order, with the page itself next to the form. One draft for the page's settings,
-// saved together; images and instructions are saved as they are made. With a group (#290)
-// the editor edits the group's own page: its clients see it in place of the panel's, while
-// the brand, its colour, the images and the instructions stay the panel's.
+// saved together; images, instructions and the apps' downloads are saved as they are made
+// (the apps' are every page's, #278). With a group (#290) the editor edits the group's own
+// page: its clients see it in place of the panel's, while the brand, its colour, the images,
+// the instructions and the apps' downloads stay the panel's. The admin's texts have
+// translations into the page's languages: one language is picked for the whole editor, and the
+// preview shows the page in it.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useBlocker } from "@tanstack/react-router";
 import { RotateCcw } from "lucide-react";
@@ -18,6 +21,8 @@ import { t } from "../../../i18n";
 import { useDraft } from "../../../lib/draft";
 import { fieldErrors } from "../../../lib/fields";
 import type { Platform } from "../../../sub/apps";
+import { PLATFORMS } from "../../../sub/page";
+import type { TextLang } from "../../../sub/texts";
 import type { SETTINGS_PARTS } from "../../search";
 import { GroupBadge } from "../groups/badge";
 import { DocsSection } from "./sub-docs";
@@ -27,6 +32,7 @@ import { BrandSection } from "./sub-page/brand";
 import { CSSSection, LookSection } from "./sub-page/look";
 import { COLOR, type Form, type Set, type View } from "./sub-page/parts";
 import { Preview } from "./sub-page/preview";
+import { langOfField } from "./sub-page/text-edits";
 
 /** The editor's parts, listed under "Subscription page" in the settings' section list. */
 export type SubPagePart = (typeof SETTINGS_PARTS.page)[number];
@@ -99,6 +105,8 @@ function Editor({ v, section, setSection, group }: { v: View; section: Section; 
   const { draft, setDraft, dirty, reset } = useDraft<Form>({ config: v.config, brand_accent: v.brand_accent });
   // The platform the apps section edits: the preview opens the same tab.
   const [appsTab, setAppsTab] = useState<Platform>("ios");
+  // The language the admin's texts are edited in: the preview shows the page in it too.
+  const [lang, setLang] = useState<TextLang>("");
   const [live, setLive] = useState("");
   const [resetting, setResetting] = useState(false);
   const set: Set = (f) => setDraft((d) => ({ ...d, config: f(d.config) }));
@@ -125,9 +133,14 @@ function Editor({ v, section, setSection, group }: { v: View; section: Section; 
     },
     onError: (e) => {
       toast.error(errorText(e));
-      // The first field the server refused: its section opens.
+      // The first field the server refused: its section opens, in the field's language, on the
+      // platform of an apps' list.
       const field = e instanceof ApiError ? Object.keys(e.fields)[0] : undefined;
-      if (field) setSection(sectionOf(field));
+      if (!field) return;
+      setSection(sectionOf(field));
+      setLang(langOfField(field));
+      const platform = platformOf(field);
+      if (platform) setAppsTab(platform);
     },
   });
   const errors = fieldErrors(save.error);
@@ -152,17 +165,17 @@ function Editor({ v, section, setSection, group }: { v: View; section: Section; 
 
   return (
     <>
-      <WithPreview title={t("settings.page.preview")} preview={(bare) => <Preview v={v} draft={draft} platform={section === "apps" ? appsTab : undefined} bare={bare} />}>
+      <WithPreview title={t("settings.page.preview")} preview={(bare) => <Preview v={v} draft={draft} platform={section === "apps" ? appsTab : undefined} bare={bare} lang={lang} setLang={setLang} />}>
             {section === "look" ? (
               <LookSection draft={draft} setDraft={setDraft} set={set} errors={errors} accentMissing={accentMissing} background={v.background} accentShared={!!group} />
             ) : section === "brand" ? (
-              <BrandSection draft={draft} setDraft={setDraft} set={set} errors={errors} logo={v.logo} brandName={v.brand} />
+              <BrandSection draft={draft} setDraft={setDraft} set={set} errors={errors} logo={v.logo} brandName={v.brand} lang={lang} setLang={setLang} />
             ) : section === "blocks" ? (
-              <BlocksSection config={draft.config} set={set} errors={errors} announce={setLive} />
+              <BlocksSection config={draft.config} set={set} errors={errors} announce={setLive} lang={lang} setLang={setLang} />
             ) : section === "apps" ? (
-              <AppsSection config={draft.config} set={set} announce={setLive} platform={appsTab} setPlatform={setAppsTab} />
+              <AppsSection config={draft.config} set={set} errors={errors} announce={setLive} platform={appsTab} setPlatform={setAppsTab} brand={v.brand} lang={lang} setLang={setLang} />
             ) : section === "docs" ? (
-              <DocsSection announce={setLive} />
+              <DocsSection announce={setLive} lang={lang} setLang={setLang} />
             ) : (
               <CSSSection config={draft.config} set={set} error={errors["config.css"]} />
             )}
@@ -201,6 +214,12 @@ function Editor({ v, section, setSection, group }: { v: View; section: Section; 
       />
     </>
   );
+}
+
+/** The platform of an apps' list a field the API refused is in ("config.apps.android.order"); none for any other field. */
+function platformOf(field: string): Platform | undefined {
+  const name = /^config\.apps\.([a-z]+)\./.exec(field)?.[1];
+  return PLATFORMS.find((p) => p === name);
 }
 
 /** The section of the editor a field the API refused is in. */

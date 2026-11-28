@@ -3,6 +3,7 @@ package subsrc
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -20,8 +21,9 @@ type headPage interface {
 
 // servePage sends the subscription page with what the admin made of it (subpage): its data,
 // the link preview and the admin's CSS, of the page of the subscriber's group when it has one
-// (cfg.Page, Config.forGroup). When that cannot be read the page goes as built, in its default
-// look, rather than not at all.
+// (cfg.Page, Config.forGroup). A part of it that does not read is left out and the rest shown;
+// when it cannot be read at all, the page goes in its default look with the built-in apps
+// (subpage.Fallback) rather than with no apps.
 func (h *Handler) servePage(w http.ResponseWriter, r *http.Request, cfg serve.Config) {
 	hp, ok := h.page.(headPage)
 	if !ok || h.pages == nil {
@@ -29,10 +31,12 @@ func (h *Handler) servePage(w http.ResponseWriter, r *http.Request, cfg serve.Co
 		return
 	}
 	pub, err := h.pages.Public(r.Context(), cfg.Page, cfg.Brand, cfg.App.Accent)
-	if err != nil {
-		h.warn("page", "subscription page: its settings were not read, the default look is shown", "err", err)
-		h.page.ServeHTTP(w, r)
-		return
+	switch {
+	case errors.Is(err, subpage.ErrUnreadable):
+		h.warn("page-unreadable", "subscription page: some of its settings do not read, the page goes without them", "err", err)
+	case err != nil:
+		h.warn("page", "subscription page: its settings were not read, the default page with the built-in apps is shown", "err", err)
+		pub = subpage.Fallback(cfg.Brand)
 	}
 	if pub.RemoteImages() {
 		// An instruction may show images from other sites, by https only.
@@ -55,8 +59,9 @@ func subRootURL(r *http.Request, cfg serve.Config) string {
 	return page
 }
 
-// image sends an image the admin uploaded for the page. The type is the one sniffed when
-// it was uploaded; a link with its current hash is kept by the browser for good.
+// image sends an image the admin uploaded for the page: the logo, the background or an app's
+// icon. The type is the one sniffed when it was uploaded; a link with its current hash is kept
+// by the browser for good.
 func (h *Handler) image(w http.ResponseWriter, r *http.Request, name string) {
 	if subpage.AssetLimit(name) == 0 {
 		server.NotFound(w)
@@ -86,7 +91,8 @@ func (h *Handler) image(w http.ResponseWriter, r *http.Request, name string) {
 	http.ServeContent(w, r, "", time.Unix(a.UpdatedAt, 0), bytes.NewReader(a.Data))
 }
 
-// doc sends a published instruction for the page to open.
+// doc sends a published instruction for the page to open, with its translations: the page
+// shows the one of its visitor's language.
 func (h *Handler) doc(w http.ResponseWriter, r *http.Request, rest string) {
 	id, err := strconv.ParseInt(rest, 10, 64)
 	if err != nil || id <= 0 {
@@ -94,6 +100,10 @@ func (h *Handler) doc(w http.ResponseWriter, r *http.Request, rest string) {
 		return
 	}
 	d, ok, err := h.pages.Doc(r.Context(), id)
+	if errors.Is(err, subpage.ErrUnreadable) {
+		h.warn("doc-unreadable", "subscription page: an instruction's translations do not read, it is shown in its own words", "doc", id, "err", err)
+		err = nil
+	}
 	switch {
 	case err != nil:
 		internalError(w)

@@ -578,15 +578,17 @@ type SubBlockedApp struct {
 }
 
 type SubDoc struct {
-	ID        int64
-	Title     string
-	Emoji     string
-	Body      string
-	Platform  string
-	Position  int64
-	Published int64
-	CreatedAt int64
-	UpdatedAt int64
+	ID               int64
+	Title            string
+	Emoji            string
+	Body             string
+	Platform         string
+	Position         int64
+	Published        int64
+	CreatedAt        int64
+	UpdatedAt        int64
+	Translations     string
+	TranslatedTitles string
 }
 
 type SubFetch struct {

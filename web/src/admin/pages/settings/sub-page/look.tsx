@@ -10,7 +10,7 @@ import { Button, Field, Segmented, Skeleton } from "../../../../components/ui";
 import { t } from "../../../../i18n";
 import { fieldErrors } from "../../../../lib/fields";
 import { followsMode, MODE_PALETTES, THEMES } from "../../../../lib/themes";
-import { Card, COLOR, imageURL, LIMITS, MAX_CSS, type Asset, type Config, type Look, type SectionProps, type Set } from "./parts";
+import { Card, COLOR, imageProblem, imageURL, LIMITS, MAX_CSS, readBase64, type Asset, type Config, type Look, type SectionProps, type Set } from "./parts";
 
 function ColorField({ id, label, value, onChange, error, hint }: { id: string; label: string; value: string; onChange: (v: string) => void; error?: string; hint?: string }) {
   const valid = COLOR.test(value.trim());
@@ -224,15 +224,7 @@ export function ImageField({ name, asset, label, hint }: { name: "logo" | "backg
   const input = useRef<HTMLInputElement>(null);
   const [local, setLocal] = useState("");
   const upload = useMutation({
-    mutationFn: async (file: File) => {
-      const data = await new Promise<string>((resolve, reject) => {
-        const r = new FileReader();
-        r.onload = () => resolve(String(r.result).replace(/^data:[^,]*,/, ""));
-        r.onerror = () => reject(new Error("read"));
-        r.readAsDataURL(file);
-      });
-      return unwrap(api.PUT("/api/v1/sub-page/images/{name}", { params: { path: { name } }, body: { data } }));
-    },
+    mutationFn: async (file: File) => unwrap(api.PUT("/api/v1/sub-page/images/{name}", { params: { path: { name } }, body: { data: await readBase64(file) } })),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: qk.subPage });
       toast.ok(t("settings.page.imageUploaded"));
@@ -247,8 +239,8 @@ export function ImageField({ name, asset, label, hint }: { name: "logo" | "backg
     setLocal("");
     upload.reset();
     if (!file) return;
-    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) setLocal(t("errors.api.image_type"));
-    else if (file.size > LIMITS[name] * 1024) setLocal(t("errors.api.image_too_big", { value: LIMITS[name] }));
+    const problem = imageProblem(file, LIMITS[name]);
+    if (problem) setLocal(problem);
     else upload.mutate(file);
   };
   const error = local || (upload.error ? (fieldErrors(upload.error).data ?? errorText(upload.error)) : "");

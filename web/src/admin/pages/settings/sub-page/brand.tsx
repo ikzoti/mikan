@@ -1,20 +1,25 @@
-// The brand on the page: its mark and the line under the name.
+// The brand on the page: its mark and the line under the name, in the page's languages.
 import { Link } from "@tanstack/react-router";
 import { SwitchRow } from "../../../../components/switch";
 import { Field, Segmented } from "../../../../components/ui";
 import { t } from "../../../../i18n";
 import { ImageField } from "./look";
-import { Card, imageURL, type Asset, type Config, type SectionProps } from "./parts";
+import { Card, imageURL, type Asset, type Config, type LangProps, type SectionProps } from "./parts";
+import { textOf, textPath, withTextOf } from "./text-edits";
+import { TextLangNote, TextLangSwitch, textHint, textLabel } from "./text-lang";
 
-export function BrandSection({ draft, set, errors, logo, brandName }: SectionProps & { logo?: Asset; brandName: string }) {
+export function BrandSection({ draft, set, errors, logo, brandName, lang, setLang }: SectionProps & LangProps & { logo?: Asset; brandName: string }) {
   const b = draft.config.brand;
   const og = draft.config.og;
   const setBrand = (patch: Partial<Config["brand"]>) => set((c) => ({ ...c, brand: { ...c.brand, ...patch } }));
   const setOG = (patch: Partial<Config["og"]>) => set((c) => ({ ...c, og: { ...c.og, ...patch } }));
   const name = brandName.trim() || "VPN";
+  const subtitle = textOf(b, lang, "subtitle");
+  const subtitleError = errors[`config.brand.${textPath(lang, "subtitle")}`];
   return (
     <>
-      <Card title={t("settings.page.brand")} sub={t("settings.page.brandSub")}>
+      <Card title={t("settings.page.brand")} sub={t("settings.page.brandSub")} aside={<TextLangSwitch value={lang} onChange={setLang} />}>
+        <TextLangNote lang={lang} className="mb-3" />
         <div className="grid gap-x-3 sm:grid-cols-2">
           <Field label={t("settings.brand")} hint={t("settings.page.brandNameHint")}>
             <div className="flex min-h-11 items-center justify-between gap-2 rounded-[var(--r-md)] border border-[var(--hairline)] bg-[var(--surface-soft)] py-1 pr-1 pl-3">
@@ -24,8 +29,16 @@ export function BrandSection({ draft, set, errors, logo, brandName }: SectionPro
               </Link>
             </div>
           </Field>
-          <Field label={t("settings.page.subtitle")} htmlFor="sp-subtitle" hint={t("settings.page.subtitleHint")} error={errors["config.brand.subtitle"]}>
-            <input id="sp-subtitle" className="input" value={b.subtitle} maxLength={80} onChange={(e) => setBrand({ subtitle: e.target.value })} aria-invalid={!!errors["config.brand.subtitle"]} />
+          <Field label={textLabel(t("settings.page.subtitle"), lang)} htmlFor="sp-subtitle" hint={lang ? textHint(b.subtitle, subtitle) : t("settings.page.subtitleHint")} error={subtitleError}>
+            <input
+              id="sp-subtitle"
+              className="input"
+              value={subtitle}
+              maxLength={80}
+              placeholder={lang ? b.subtitle : undefined}
+              onChange={(e) => set((c) => ({ ...c, brand: withTextOf(c.brand, lang, "subtitle", e.target.value) }))}
+              aria-invalid={!!subtitleError}
+            />
           </Field>
         </div>
         <Field label={t("settings.page.logo")} hint={t("settings.page.logoHint")} error={errors["config.brand.logo"]}>

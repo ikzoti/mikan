@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"reflect"
 	"regexp"
 	"testing"
@@ -297,23 +296,5 @@ func TestInfoNamesTheBlockedApps(t *testing.T) {
 	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/"+u.SubToken+"/info", nil))
 	if raw := w.Body.String(); regexp.MustCompile(`blocked_apps`).MatchString(raw) {
 		t.Errorf("an empty list is left out: %s", raw)
-	}
-}
-
-// The page names its apps by the catalog's ids (web/src/sub/apps.ts): an id the panel does
-// not know would never be hidden by the list.
-func TestPageCatalogUsesKnownAppIDs(t *testing.T) {
-	raw, err := os.ReadFile("../../../web/src/sub/apps.ts")
-	if err != nil {
-		t.Skip("the web sources are not here")
-	}
-	ids := regexp.MustCompile(`\bid: "([a-z0-9]+)"`).FindAllStringSubmatch(string(raw), -1)
-	if len(ids) == 0 {
-		t.Fatal("the page's catalog names no app by id")
-	}
-	for _, m := range ids {
-		if !apps.ValidID(m[1]) {
-			t.Errorf("web/src/sub/apps.ts names %q, which is not in apps.Catalog", m[1])
-		}
 	}
 }

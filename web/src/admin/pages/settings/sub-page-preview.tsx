@@ -6,23 +6,30 @@ import { useDeferredValue, useEffect, useLayoutEffect, useRef, useState, type Mo
 import { createRoot, type Root } from "react-dom/client";
 import { Button } from "../../../components/ui";
 import { getLocale, t, useLocale } from "../../../i18n";
-import type { Platform } from "../../../sub/apps";
+import type { AppCatalog, IconSource, Platform } from "../../../sub/apps";
 import { cleanCSS, paintLook, titleOf, type DocItem, type DocView, type PageConfig } from "../../../sub/page";
 import { ReissueSection } from "../../../sub/reissue";
 import { Shop, type ShopData } from "../../../sub/shop";
 import type { Info } from "../../../sub/types";
+import type { TextLang } from "../../../sub/texts";
 import { DocScreen, PageBackdrop, PageBlocks, PageShell } from "../../../sub/view";
 
 export type PreviewDevice = "phone" | "desktop";
 
 type PreviewProps = {
   config: PageConfig;
+  /** The language of the admin's texts the page shows; the page's own words are the panel's language. */
+  lang: TextLang;
   brand: string;
   /** The brand's colour when the page takes it. */
   accent?: string;
   logo?: string;
   background?: string;
   docs: DocView[];
+  /** The apps as the server has them; the draft orders and hides them. */
+  catalog: AppCatalog;
+  /** The apps' pictures, as the admin reaches them. */
+  iconSrc: IconSource;
   info: Info;
   subURL: string;
   device: PreviewDevice;
@@ -145,23 +152,26 @@ function PreviewPage(p: PreviewProps) {
   const shell = (children: React.ReactNode) => (
     <div onClickCapture={stay}>
       <PageBackdrop look={p.config.look} image={p.background} />
-      <PageShell config={p.config} brand={p.brand} logo={p.logo} right={<span className="ml-auto text-xs font-semibold text-[var(--ink-500)]">{getLocale().toUpperCase()}</span>}>
+      <PageShell config={p.config} brand={p.brand} logo={p.logo} lang={p.lang} right={<span className="ml-auto text-xs font-semibold text-[var(--ink-500)]">{getLocale().toUpperCase()}</span>}>
         {children}
       </PageShell>
     </div>
   );
   if (docId !== null) {
     const doc = p.docs.find((d) => d.id === docId);
-    return shell(<DocScreen key={docId} item={doc} load={() => (doc ? Promise.resolve(doc) : Promise.reject(new Error("gone")))} onBack={() => setDocId(null)} tgMode={p.tg} />);
+    return shell(<DocScreen key={docId} item={doc} load={() => (doc ? Promise.resolve(doc) : Promise.reject(new Error("gone")))} onBack={() => setDocId(null)} tgMode={p.tg} lang={p.lang} />);
   }
-  const promoTitle = titleOf(p.config, "promo");
+  const promoTitle = titleOf(p.config, "promo", p.lang);
   return shell(
     <PageBlocks
       config={p.config}
+      lang={p.lang}
       info={p.info}
       subURL={p.subURL}
       tgMode={p.tg}
       docs={docs}
+      catalog={p.catalog}
+      iconSrc={p.iconSrc}
       platform={p.platform}
       selling={p.tg}
       promo={
@@ -182,7 +192,7 @@ function PreviewPage(p: PreviewProps) {
             subRoot=""
             initData=""
             token=""
-            title={titleOf(p.config, "shop") || t("sub.shop")}
+            title={titleOf(p.config, "shop", p.lang) || t("sub.shop")}
             openInvoice={() => undefined}
             openLink={() => undefined}
             onRefresh={() => undefined}
@@ -191,7 +201,7 @@ function PreviewPage(p: PreviewProps) {
       }
       reissue={
         <div inert>
-          <ReissueSection info={{ ...p.info, reissue: true }} subURL="" title={titleOf(p.config, "reissue")} onDone={() => undefined} />
+          <ReissueSection info={{ ...p.info, reissue: true }} subURL="" title={titleOf(p.config, "reissue", p.lang)} onDone={() => undefined} />
         </div>
       }
       reload={() => Promise.resolve()}

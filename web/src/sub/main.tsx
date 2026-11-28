@@ -8,9 +8,9 @@ import { LangSwitch } from "../components/lang";
 import { Button, Skeleton } from "../components/ui";
 import { initI18n, t, useLocale } from "../i18n";
 import { subDicts } from "../i18n/sub";
-import { APPS } from "./apps";
+import { appLink, type IconSource } from "./apps";
 import { hashParams, initData, json, okData, openOutside, pageURL, postJSON, request, subRoot, tgEvent, tgMode, tokenOf, webShopMode } from "./net";
-import { applyLook, readPage, titleOf, type DocView } from "./page";
+import { applyLook, PLATFORMS, readPage, titleOf, type DocView } from "./page";
 import { FreePlan, loadShop, Shop, type ShopData } from "./shop";
 import { BrowserShop } from "./browser-shop";
 import { PromoSection } from "./promo";
@@ -42,13 +42,14 @@ const page = readPage();
 // under it, whether the page is opened by its token or as the Mini App (/tg).
 const pageRoot = new URL(".", document.baseURI).href.replace(/\/$/, "");
 const asset = (path?: string) => (path ? pageRoot + "/" + path : undefined);
+const appIconSrc: IconSource = (app) => asset(app.icon.path);
 applyLook(page, asset);
 const config = page.config;
 
 function SubPage() {
   // Texts are read at render time: follow a language switch without remounting the page
   // (a remount would sign in to the Mini App and fetch everything again).
-  useLocale();
+  const locale = useLocale();
   // The info that came for one subscription's address; it is shown only while that address
   // is the one on screen, so a late answer of another subscription never takes its place.
   const [info, setInfo] = useState<{ url: string; data: Info } | null>(null);
@@ -65,6 +66,9 @@ function SubPage() {
     return typeof id === "number" ? id : null;
   });
   const docScroll = useRef(0);
+  // The element the focus goes back to from the instruction, when another than its row of
+  // the list opened it: an app's "Instruction".
+  const docFrom = useRef("");
   const current = info && info.url === subURL ? info.data : null;
   const failed = !current && failedURL === subURL;
 
@@ -194,7 +198,7 @@ function SubPage() {
     return () => ctl.abort();
   }, [subURL, loadInfo]);
 
-  // The Mini App sends an app's "Add" to the browser as #open=<app>: open it once, right
+  // The Mini App sends an app's "Add" to the browser as #open=<app id>: open it once, right
   // away. The mark is dropped from the address, or a reload and every refresh of the info
   // would ask the system to open the app again.
   const launched = useRef(false);
@@ -204,10 +208,9 @@ function SubPage() {
     if (!want) return;
     launched.current = true;
     history.replaceState(null, "", location.pathname + location.search);
-    const app = Object.values(APPS)
-      .flat()
-      .find((a) => a.name === want && !current.blocked_apps?.includes(a.id));
-    if (app) location.href = app.link(subURL, current.brand, current.happ_link);
+    const app = PLATFORMS.flatMap((k) => page.catalog[k]).find((a) => a.id === want && !current.blocked_apps?.includes(a.id));
+    const link = app && appLink(app, { url: subURL, brand: current.brand, happ: current.happ_link });
+    if (link) location.href = link;
   }, [current, subURL]);
 
   // An instruction opens as a step of the history: back (the browser's, the phone's or
@@ -225,17 +228,20 @@ function SubPage() {
     if (tgMode && (docId !== null || prevDoc.current !== null)) tgEvent("web_app_setup_back_button", { is_visible: docId !== null });
     if (docId !== null) window.scrollTo(0, 0);
     else if (prevDoc.current !== null) {
-      // Back on the page: where it was, with the focus on the instruction just read.
-      const from = prevDoc.current;
+      // Back on the page: where it was, with the focus on what opened the instruction just
+      // read; its row of the list after a reload, which forgets the rest.
+      const from = docFrom.current || `doc-${prevDoc.current}`;
+      docFrom.current = "";
       window.requestAnimationFrame(() => {
         window.scrollTo(0, docScroll.current);
-        document.getElementById(`doc-${from}`)?.focus({ preventScroll: true });
+        document.getElementById(from)?.focus({ preventScroll: true });
       });
     }
     prevDoc.current = docId;
   }, [docId]);
-  const openDoc = (id: number) => {
+  const openDoc = (id: number, from?: string) => {
     docScroll.current = window.scrollY;
+    docFrom.current = from ?? "";
     history.pushState({ doc: id }, "");
     setDocId(id);
   };
@@ -346,7 +352,7 @@ function SubPage() {
         {freePlan}
         {plansForNew ? (
           <>
-            <PromoSection token="" activeCode={promoCode} onApplied={(c) => setPromoCode(c)} onBonusApplied={refresh} title={titleOf(config, "promo")} />
+            <PromoSection token="" activeCode={promoCode} onApplied={(c) => setPromoCode(c)} onBonusApplied={refresh} title={titleOf(config, "promo", locale)} />
             {shopFor("", t("sub.shopNew"))}
           </>
         ) : null}
@@ -412,6 +418,7 @@ function SubPage() {
           load={() => request(`${subURL}/docs/${docId}`).then((r) => json<DocView>(r))}
           onBack={() => history.back()}
           tgMode={tgMode}
+          lang={locale}
         />
       </Shell>
     );
@@ -436,23 +443,26 @@ function SubPage() {
       ) : null}
       <PageBlocks
         config={config}
+        lang={locale}
         info={current}
         subURL={subURL}
         tgMode={tgMode}
         docs={page.docs}
+        catalog={page.catalog}
+        iconSrc={appIconSrc}
         selling={tgMode && !!shop?.offers.length}
         buy={buy}
-        promo={tgMode ? <PromoSection token={subURL} activeCode={promoCode} onApplied={(c) => setPromoCode(c)} onBonusApplied={refresh} title={titleOf(config, "promo")} /> : null}
+        promo={tgMode ? <PromoSection token={subURL} activeCode={promoCode} onApplied={(c) => setPromoCode(c)} onBonusApplied={refresh} title={titleOf(config, "promo", locale)} /> : null}
         shop={
           tgMode ? (
             <>
-              {shopFor(token, titleOf(config, "shop") || t("sub.shop"))}
+              {shopFor(token, titleOf(config, "shop", locale) || t("sub.shop"))}
               {packagesShop ? <div id="sub-packages" className="scroll-mt-4">{packagesShop}</div> : null}
               {deviceShop}
               {freePlan}
             </>
           ) : (
-            <BrowserShop subToken={token} title={titleOf(config, "shop") || t("sub.shop")} onRenewed={() => loadInfo(subURL).catch(() => undefined)} />
+            <BrowserShop subToken={token} title={titleOf(config, "shop", locale) || t("sub.shop")} onRenewed={() => loadInfo(subURL).catch(() => undefined)} />
           )
         }
         reissue={
@@ -461,7 +471,7 @@ function SubPage() {
               key={token}
               info={current}
               subURL={subURL}
-              title={titleOf(config, "reissue")}
+              title={titleOf(config, "reissue", locale)}
               onDone={(newToken) => {
                 // The page opens at the new address; the sign-in's list is told afterwards, so that
                 // it finds the new link among the account's and keeps it on screen.
@@ -484,8 +494,9 @@ function WebShopPage() {
 }
 
 function Shell({ brand, children }: { brand?: string; children: React.ReactNode }) {
+  const locale = useLocale();
   return (
-    <PageShell config={config} brand={brand ?? page.brand} logo={asset(page.logo)} right={<LangSwitch className="ml-auto" />}>
+    <PageShell config={config} brand={brand ?? page.brand} logo={asset(page.logo)} lang={locale} right={<LangSwitch className="ml-auto" />}>
       {children}
     </PageShell>
   );

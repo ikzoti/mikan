@@ -3,14 +3,16 @@
 // the admin's preview builds the same shape from the editor's draft.
 import type { CSSProperties } from "react";
 import type { components } from "../api/schema";
-import type { Platform } from "./apps";
+import { NO_APPS, type AppCatalog, type Platform } from "./apps";
+import { textIn, type TextLang, type Texts } from "./texts";
 import { followsMode, isDarkTheme, isTheme } from "../lib/themes";
 
 export type PageConfig = components["schemas"]["Page"];
 export type PageBlock = components["schemas"]["PageBlock"];
 export type PageLook = components["schemas"]["PageLook"];
 export type BlockType = PageBlock["type"];
-export type DocItem = { id: number; title: string; emoji?: string; platform?: string };
+/** An instruction as the page lists it (subpage.DocItem): its translations hold the titles alone, its own screen's (DocView) the texts too. */
+export type DocItem = { id: number; title: string; emoji?: string; platform?: string; i18n?: Texts<"title" | "body"> };
 export type DocView = DocItem & { body: string };
 
 /** The page's data block (subpage.Public). */
@@ -23,6 +25,8 @@ type PagePublic = {
   logo?: string;
   background?: string;
   docs: DocItem[];
+  /** The catalogue without the apps the page hides (a group's page keeps those the panel's page shows, for the Mini App's "Add"); config.apps orders it and hides those. */
+  catalog: AppCatalog;
 };
 
 /** Blocks shown only in the Telegram Mini App: buying needs Telegram's sign-in. */
@@ -68,12 +72,12 @@ export function readPage(): PagePublic {
     const raw = document.getElementById("mikan-page")?.textContent;
     if (raw) {
       const p = JSON.parse(raw) as PagePublic;
-      if (p?.config?.blocks) return { ...p, docs: p.docs ?? [] };
+      if (p?.config?.blocks) return { ...p, docs: p.docs ?? [], catalog: p.catalog ?? NO_APPS };
     }
   } catch {
-    // a page without its data shows as it always did
+    // a page without its data shows as it always did, with no apps: they are the server's
   }
-  return { config: DEFAULT_PAGE, brand: "", docs: [] };
+  return { config: DEFAULT_PAGE, brand: "", docs: [], catalog: NO_APPS };
 }
 
 /** The scheme the page is shown in: the admin's, or the visitor's with "system". */
@@ -145,14 +149,14 @@ export function backdropStyle(look: PageLook, image?: string): CSSProperties | n
   }
 }
 
-/** A platform's apps of the catalogue as the admin ordered them, hidden ones left out. */
-export function orderApps<T extends { name: string }>(apps: T[], list: { order: string[]; hidden: string[] } | undefined): T[] {
+/** A platform's apps of the catalogue as the admin ordered them by id, hidden ones left out; those not ordered follow in the catalogue's order. */
+export function orderApps<T extends { id: string }>(apps: T[], list: { order: string[]; hidden: string[] } | undefined): T[] {
   if (!list) return apps;
-  const pos = (name: string) => {
-    const i = list.order.indexOf(name);
-    return i < 0 ? list.order.length + apps.findIndex((a) => a.name === name) : i;
+  const pos = (id: string) => {
+    const i = list.order.indexOf(id);
+    return i < 0 ? list.order.length + apps.findIndex((a) => a.id === id) : i;
   };
-  return apps.filter((a) => !list.hidden.includes(a.name)).sort((a, b) => pos(a.name) - pos(b.name));
+  return apps.filter((a) => !list.hidden.includes(a.id)).sort((a, b) => pos(a.id) - pos(b.id));
 }
 
 /** The title a block shows: the admin's own, or its usual one. */
@@ -160,9 +164,10 @@ export function blockTitle(block: PageBlock, usual: string): string {
   return block.title.trim() || usual;
 }
 
-/** A block's own heading, "" when it has none (or the page has no such block). */
-export function titleOf(config: PageConfig, type: BlockType): string {
-  return config.blocks.find((b) => b.type === type)?.title.trim() ?? "";
+/** A block's own heading in lang, "" when it has none (or the page has no such block). */
+export function titleOf(config: PageConfig, type: BlockType, lang: TextLang): string {
+  const b = config.blocks.find((x) => x.type === type);
+  return b ? textIn(lang, b.title, b.i18n, "title").trim() : "";
 }
 
 /**

@@ -707,6 +707,109 @@
         },
         "type": "object"
       },
+      "AppCatalog": {
+        "additionalProperties": false,
+        "properties": {
+          "android": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogApp"
+            },
+            "type": "array"
+          },
+          "ios": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogApp"
+            },
+            "type": "array"
+          },
+          "linux": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogApp"
+            },
+            "type": "array"
+          },
+          "macos": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogApp"
+            },
+            "type": "array"
+          },
+          "windows": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogApp"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "ios",
+          "android",
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "type": "object"
+      },
+      "AppDownload": {
+        "additionalProperties": false,
+        "properties": {
+          "i18n": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/LabelText"
+            },
+            "description": "Надпись кнопки на языках страницы (ru, en); где перевода нет, label",
+            "type": "object"
+          },
+          "kind": {
+            "description": "appstore, googleplay и github: магазины и релизы на GitHub; mirror: своя копия приложения; link: другая страница, с надписью",
+            "enum": [
+              "appstore",
+              "googleplay",
+              "github",
+              "mirror",
+              "link"
+            ],
+            "type": "string"
+          },
+          "label": {
+            "description": "Надпись кнопки; без неё кнопку называет kind. У link обязательна",
+            "maxLength": 40,
+            "type": "string"
+          },
+          "url": {
+            "description": "https://",
+            "maxLength": 500,
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "url"
+        ],
+        "type": "object"
+      },
+      "AppIcon": {
+        "additionalProperties": false,
+        "properties": {
+          "emoji": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "kind": {
+            "description": "letter: первая буква названия; emoji; image: картинка из PUT /api/v1/sub-page/apps/{id}/icon",
+            "enum": [
+              "letter",
+              "emoji",
+              "image"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
       "ApplyTariffInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -740,6 +843,31 @@
         },
         "required": [
           "applied"
+        ],
+        "type": "object"
+      },
+      "AppsConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "own": {
+            "description": "Свои приложения админа, до 20, в этом порядке: на каждой платформе приложение на mihomo идёт за встроенными на mihomo, остальные после всех встроенных",
+            "items": {
+              "$ref": "#/components/schemas/OwnApp"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
+          "presets": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PresetEdit"
+            },
+            "description": "Правки встроенных приложений по их id (happ, koala…); приложения без правок здесь нет",
+            "type": "object"
+          }
+        },
+        "required": [
+          "presets",
+          "own"
         ],
         "type": "object"
       },
@@ -1238,6 +1366,21 @@
         ],
         "type": "object"
       },
+      "BlockText": {
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "description": "Только у блока text: Markdown",
+            "maxLength": 8000,
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 60,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BotPreview": {
         "additionalProperties": false,
         "properties": {
@@ -1452,6 +1595,19 @@
           "last_seen",
           "traffic_up",
           "traffic_down"
+        ],
+        "type": "object"
+      },
+      "BrandText": {
+        "additionalProperties": false,
+        "properties": {
+          "subtitle": {
+            "maxLength": 80,
+            "type": "string"
+          }
+        },
+        "required": [
+          "subtitle"
         ],
         "type": "object"
       },
@@ -2065,6 +2221,103 @@
         },
         "required": [
           "exits"
+        ],
+        "type": "object"
+      },
+      "CatalogApp": {
+        "additionalProperties": false,
+        "properties": {
+          "crypt": {
+            "description": "Открывает шифрованную ссылку Happ вместо link, когда панель её даёт",
+            "type": "boolean"
+          },
+          "doc": {
+            "description": "Инструкция по шагам: id из GET /api/v1/sub-docs или 0, если её нет",
+            "format": "int64",
+            "type": "integer"
+          },
+          "downloads": {
+            "description": "Кнопки «Скачать»",
+            "items": {
+              "$ref": "#/components/schemas/AppDownload"
+            },
+            "type": "array"
+          },
+          "family": {
+            "description": "Ядро приложения",
+            "enum": [
+              "mihomo",
+              "xray",
+              "singbox",
+              "other"
+            ],
+            "type": "string"
+          },
+          "i18n": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/NoteText"
+            },
+            "description": "Подпись своего приложения на языках страницы (ru, en); где перевода нет, note",
+            "type": "object"
+          },
+          "icon": {
+            "$ref": "#/components/schemas/CatalogIcon"
+          },
+          "id": {
+            "description": "У встроенных это id из списка известных приложений (GET /api/v1/sub-apps): заблокированное там страница не показывает. У своих приложений id начинается с own-",
+            "type": "string"
+          },
+          "link": {
+            "description": "Ссылка, которая добавляет подписку в приложение. Подстановки: {url} (адрес подписки как есть), {url_enc} (он же в percent-encoding), {name} (бренд в percent-encoding). Пусто у своего приложения без кнопки «Добавить»",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "note": {
+            "description": "Подпись под названием. У встроенных это её ключ: easiest, free, stable, openSource, modern, bestWindows, tun, oneButton, allProtocols, everything; у своих приложений это текст",
+            "type": "string"
+          },
+          "own": {
+            "description": "Своё приложение админа (apps.own)",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "family",
+          "own",
+          "icon",
+          "link",
+          "crypt",
+          "note",
+          "downloads",
+          "doc"
+        ],
+        "type": "object"
+      },
+      "CatalogIcon": {
+        "additionalProperties": false,
+        "properties": {
+          "emoji": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "letter",
+              "emoji",
+              "image"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "description": "Картинка: путь от пути подписки, как у логотипа (brand/app-\u003cid\u003e?v=\u003chash\u003e)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
         ],
         "type": "object"
       },
@@ -3388,6 +3641,21 @@
           "last_seen",
           "online"
         ],
+        "type": "object"
+      },
+      "DocText": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "description": "Markdown",
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 80,
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "EgressFilter": {
@@ -5932,6 +6200,19 @@
         ],
         "type": "object"
       },
+      "LabelText": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "maxLength": 40,
+            "type": "string"
+          }
+        },
+        "required": [
+          "label"
+        ],
+        "type": "object"
+      },
       "LegacyLinks": {
         "additionalProperties": false,
         "properties": {
@@ -7653,6 +7934,19 @@
         ],
         "type": "object"
       },
+      "NoteText": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "maxLength": 80,
+            "type": "string"
+          }
+        },
+        "required": [
+          "note"
+        ],
+        "type": "object"
+      },
       "Notify": {
         "additionalProperties": false,
         "properties": {
@@ -7862,6 +8156,86 @@
         ],
         "type": "object"
       },
+      "OwnApp": {
+        "additionalProperties": false,
+        "properties": {
+          "family": {
+            "description": "Ядро приложения. Приложение на mihomo идёт за встроенными на mihomo, раньше остальных; другие идут после всех встроенных",
+            "enum": [
+              "mihomo",
+              "xray",
+              "singbox",
+              "other"
+            ],
+            "type": "string"
+          },
+          "icon": {
+            "$ref": "#/components/schemas/AppIcon",
+            "description": "Значок; без поля первая буква названия"
+          },
+          "id": {
+            "description": "own- и от 1 до 12 букв a-z и цифр; его выбирает редактор, потом он не меняется",
+            "maxLength": 16,
+            "type": "string"
+          },
+          "link": {
+            "description": "Ссылка, которая добавляет подписку, с теми же подстановками, что у встроенных: {url}, {url_enc}, {name}. Пустая ссылка: без кнопки «Добавить»",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 40,
+            "type": "string"
+          },
+          "platforms": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/OwnPlatform"
+            },
+            "description": "Платформы приложения, хотя бы одна: ios, android, windows, macos, linux",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "family",
+          "link",
+          "platforms"
+        ],
+        "type": "object"
+      },
+      "OwnPlatform": {
+        "additionalProperties": false,
+        "properties": {
+          "doc": {
+            "description": "Инструкция по шагам: id из GET /api/v1/sub-docs; 0 или нет поля: без инструкции",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "downloads": {
+            "description": "Кнопки «Скачать»",
+            "items": {
+              "$ref": "#/components/schemas/AppDownload"
+            },
+            "maxItems": 5,
+            "type": "array"
+          },
+          "i18n": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/NoteText"
+            },
+            "description": "Подпись на языках страницы (ru, en); где перевода нет, note",
+            "type": "object"
+          },
+          "note": {
+            "description": "Подпись под названием",
+            "maxLength": 80,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "PackageBody": {
         "additionalProperties": false,
         "properties": {
@@ -8062,17 +8436,19 @@
         "additionalProperties": false,
         "properties": {
           "hidden": {
+            "description": "id скрытых приложений",
             "items": {
               "type": "string"
             },
-            "maxItems": 20,
+            "maxItems": 32,
             "type": "array"
           },
           "order": {
+            "description": "id приложений каталога (happ, koala…), которые идут первыми, в этом порядке; остальные идут за ними",
             "items": {
               "type": "string"
             },
-            "maxItems": 20,
+            "maxItems": 32,
             "type": "array"
           }
         },
@@ -8208,6 +8584,13 @@
       "PageBlock": {
         "additionalProperties": false,
         "properties": {
+          "i18n": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/BlockText"
+            },
+            "description": "Заголовок и текст блока text на языках страницы (ru, en): посетитель видит свой язык, а где перевода нет, title и text",
+            "type": "object"
+          },
           "id": {
             "maxLength": 24,
             "type": "string"
@@ -8270,6 +8653,13 @@
             "maxLength": 32,
             "type": "string"
           },
+          "i18n": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/BrandText"
+            },
+            "description": "Строка под названием на языках страницы (ru, en): посетитель видит свой язык, а где перевода нет, subtitle",
+            "type": "object"
+          },
           "logo": {
             "description": "letter — первая буква бренда, image — загруженный логотип, emoji, none — без значка",
             "enum": [
@@ -8299,6 +8689,13 @@
           "emoji": {
             "maxLength": 32,
             "type": "string"
+          },
+          "i18n": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/LabelText"
+            },
+            "description": "Текст кнопки на языках страницы (ru, en); где перевода нет, label",
+            "type": "object"
           },
           "label": {
             "maxLength": 40,
@@ -9797,6 +10194,26 @@
         ],
         "type": "object"
       },
+      "PlatformEdit": {
+        "additionalProperties": false,
+        "properties": {
+          "doc": {
+            "description": "Инструкция по шагам: id из GET /api/v1/sub-docs; 0 или нет поля: без инструкции",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "downloads": {
+            "description": "Свои кнопки «Скачать» вместо встроенных: пустой список убирает кнопки, без поля остаются встроенные",
+            "items": {
+              "$ref": "#/components/schemas/AppDownload"
+            },
+            "maxItems": 5,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "PoolInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -10019,6 +10436,23 @@
         "required": [
           "changes"
         ],
+        "type": "object"
+      },
+      "PresetEdit": {
+        "additionalProperties": false,
+        "properties": {
+          "icon": {
+            "$ref": "#/components/schemas/AppIcon",
+            "description": "Свой значок; без поля первая буква названия"
+          },
+          "platforms": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PlatformEdit"
+            },
+            "description": "По платформам приложения: ios, android, windows, macos, linux",
+            "type": "object"
+          }
+        },
         "type": "object"
       },
       "Preview": {
@@ -10537,6 +10971,21 @@
           "bonus_bytes",
           "discount_orders",
           "discount_amount"
+        ],
+        "type": "object"
+      },
+      "PutAppIconInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "description": "Картинка в base64: PNG, JPEG или WebP до 128 КБ, лучше квадратная. SVG не принимается",
+            "maxLength": 180000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "data"
         ],
         "type": "object"
       },
@@ -12651,6 +13100,13 @@
             "maxLength": 32,
             "type": "string"
           },
+          "i18n": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/DocText"
+            },
+            "description": "Заголовок и текст на языках страницы (ru, en), по тем же правилам. Без поля PUT оставляет переводы, какие были; {} их убирает",
+            "type": "object"
+          },
           "platform": {
             "enum": [
               "ios",
@@ -12689,6 +13145,13 @@
           },
           "emoji": {
             "type": "string"
+          },
+          "i18n": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/DocText"
+            },
+            "description": "Заголовок и текст на языках страницы (ru, en): посетитель видит свой язык, а где перевода нет, title и body",
+            "type": "object"
           },
           "id": {
             "format": "int64",
@@ -12845,6 +13308,41 @@
           "name",
           "served",
           "for_some"
+        ],
+        "type": "object"
+      },
+      "SubPageAppsView": {
+        "additionalProperties": false,
+        "properties": {
+          "apps": {
+            "$ref": "#/components/schemas/AppsConfig",
+            "description": "Что админ изменил у приложений и его свои приложения"
+          },
+          "catalog": {
+            "$ref": "#/components/schemas/AppCatalog",
+            "description": "Каталог каждой страницы: встроенные приложения с правками, затем свои, по платформам, в порядке по умолчанию. Страница упорядочивает и скрывает их своими списками (config.apps)"
+          },
+          "icons": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PageAsset"
+            },
+            "description": "Загруженные картинки значков, по id приложения",
+            "type": "object"
+          },
+          "presets": {
+            "$ref": "#/components/schemas/AppCatalog",
+            "description": "Встроенные приложения без правок: к ним ведёт «Сбросить»"
+          },
+          "unreadable": {
+            "description": "Сохранённый документ не читается (его правили вручную или записала более новая версия): apps пуст, страницы показывают встроенные приложения, а PUT заменит документ",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "apps",
+          "presets",
+          "catalog",
+          "icons"
         ],
         "type": "object"
       },
@@ -24460,6 +24958,225 @@
           }
         },
         "summary": "Сохранить страницу подписки",
+        "tags": [
+          "sub-page"
+        ],
+        "x-session-only": true
+      }
+    },
+    "/api/v1/sub-page/apps": {
+      "get": {
+        "operationId": "get-sub-page-apps",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubPageAppsView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Приложения страницы подписки: встроенные, правки и свои",
+        "tags": [
+          "sub-page"
+        ]
+      },
+      "put": {
+        "operationId": "update-sub-page-apps",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppsConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubPageAppsView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Сохранить приложения страницы подписки",
+        "tags": [
+          "sub-page"
+        ],
+        "x-session-only": true
+      }
+    },
+    "/api/v1/sub-page/apps/{id}/icon": {
+      "delete": {
+        "operationId": "delete-sub-page-app-icon",
+        "parameters": [
+          {
+            "description": "id приложения: встроенного (happ…) или своего, уже сохранённого (own-…)",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "id приложения: встроенного (happ…) или своего, уже сохранённого (own-…)",
+              "pattern": "^[a-z][a-z0-9-]{0,23}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Убрать значок приложения страницы подписки",
+        "tags": [
+          "sub-page"
+        ],
+        "x-session-only": true
+      },
+      "get": {
+        "operationId": "get-sub-page-app-icon",
+        "parameters": [
+          {
+            "description": "id приложения: встроенного (happ…) или своего, уже сохранённого (own-…)",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "id приложения: встроенного (happ…) или своего, уже сохранённого (own-…)",
+              "pattern": "^[a-z][a-z0-9-]{0,23}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/jpeg": {},
+              "image/png": {},
+              "image/webp": {}
+            },
+            "description": "PNG, JPEG или WebP",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Type": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Значок приложения страницы подписки",
+        "tags": [
+          "sub-page"
+        ]
+      },
+      "put": {
+        "operationId": "put-sub-page-app-icon",
+        "parameters": [
+          {
+            "description": "id приложения: встроенного (happ…) или своего, уже сохранённого (own-…)",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "id приложения: встроенного (happ…) или своего, уже сохранённого (own-…)",
+              "pattern": "^[a-z][a-z0-9-]{0,23}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutAppIconInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageAsset"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Загрузить значок приложения страницы подписки",
         "tags": [
           "sub-page"
         ],

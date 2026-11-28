@@ -7,6 +7,9 @@ package db
 
 import (
 	"context"
+	"database/sql"
+
+	"github.com/lib/pq"
 )
 
 const countSubDocs = `-- name: CountSubDocs :one
@@ -21,18 +24,20 @@ func (q *Queries) CountSubDocs(ctx context.Context) (int64, error) {
 }
 
 const createSubDoc = `-- name: CreateSubDoc :one
-INSERT INTO sub_docs (title, emoji, body, platform, position, published, created_at, updated_at)
-VALUES ($1, $2, $3, $4, (SELECT COALESCE(MAX(d.position), 0) + 1 FROM sub_docs d), $5, $6, $6)
-RETURNING id, title, emoji, body, platform, position, published, created_at, updated_at
+INSERT INTO sub_docs (title, emoji, body, platform, translations, translated_titles, position, published, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, (SELECT COALESCE(MAX(d.position), 0) + 1 FROM sub_docs d), $7, $8, $8)
+RETURNING id, title, emoji, body, platform, position, published, created_at, updated_at, translations, translated_titles
 `
 
 type CreateSubDocParams struct {
-	Title     string
-	Emoji     string
-	Body      string
-	Platform  string
-	Published int64
-	At        int64
+	Title            string
+	Emoji            string
+	Body             string
+	Platform         string
+	Translations     string
+	TranslatedTitles string
+	Published        int64
+	At               int64
 }
 
 // A new page goes last.
@@ -42,6 +47,8 @@ func (q *Queries) CreateSubDoc(ctx context.Context, arg CreateSubDocParams) (Sub
 		arg.Emoji,
 		arg.Body,
 		arg.Platform,
+		arg.Translations,
+		arg.TranslatedTitles,
 		arg.Published,
 		arg.At,
 	)
@@ -56,6 +63,8 @@ func (q *Queries) CreateSubDoc(ctx context.Context, arg CreateSubDocParams) (Sub
 		&i.Published,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Translations,
+		&i.TranslatedTitles,
 	)
 	return i, err
 }
@@ -66,6 +75,19 @@ DELETE FROM sub_assets WHERE name = $1
 
 func (q *Queries) DeleteSubAsset(ctx context.Context, name string) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteSubAsset, name)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteSubAssets = `-- name: DeleteSubAssets :execrows
+DELETE FROM sub_assets WHERE name = ANY($1::text[])
+`
+
+// The icons of apps taken out of the page, all in one go.
+func (q *Queries) DeleteSubAssets(ctx context.Context, names []string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteSubAssets, pq.Array(names))
 	if err != nil {
 		return 0, err
 	}
@@ -85,7 +107,7 @@ func (q *Queries) DeleteSubDoc(ctx context.Context, id int64) (int64, error) {
 }
 
 const getPublishedSubDoc = `-- name: GetPublishedSubDoc :one
-SELECT id, title, emoji, body, platform, position, published, created_at, updated_at FROM sub_docs WHERE id = $1 AND published = 1
+SELECT id, title, emoji, body, platform, position, published, created_at, updated_at, translations, translated_titles FROM sub_docs WHERE id = $1 AND published = 1
 `
 
 func (q *Queries) GetPublishedSubDoc(ctx context.Context, id int64) (SubDoc, error) {
@@ -101,6 +123,8 @@ func (q *Queries) GetPublishedSubDoc(ctx context.Context, id int64) (SubDoc, err
 		&i.Published,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Translations,
+		&i.TranslatedTitles,
 	)
 	return i, err
 }
@@ -123,17 +147,19 @@ func (q *Queries) GetSubAsset(ctx context.Context, name string) (SubAsset, error
 }
 
 const listPublishedSubDocs = `-- name: ListPublishedSubDocs :many
-SELECT id, title, emoji, platform FROM sub_docs WHERE published = 1 ORDER BY position, id
+SELECT id, title, emoji, platform, translated_titles FROM sub_docs WHERE published = 1 ORDER BY position, id
 `
 
 type ListPublishedSubDocsRow struct {
-	ID       int64
-	Title    string
-	Emoji    string
-	Platform string
+	ID               int64
+	Title            string
+	Emoji            string
+	Platform         string
+	TranslatedTitles string
 }
 
-// What the subscription page lists: the published pages without their text.
+// What the subscription page lists: the published pages without their text, and of their
+// translations the titles alone.
 func (q *Queries) ListPublishedSubDocs(ctx context.Context) ([]ListPublishedSubDocsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listPublishedSubDocs)
 	if err != nil {
@@ -148,6 +174,7 @@ func (q *Queries) ListPublishedSubDocs(ctx context.Context) ([]ListPublishedSubD
 			&i.Title,
 			&i.Emoji,
 			&i.Platform,
+			&i.TranslatedTitles,
 		); err != nil {
 			return nil, err
 		}
@@ -204,8 +231,36 @@ func (q *Queries) ListSubAssetMeta(ctx context.Context) ([]ListSubAssetMetaRow, 
 	return items, nil
 }
 
+const listSubDocIDs = `-- name: ListSubDocIDs :many
+SELECT id FROM sub_docs WHERE id = ANY($1::bigint[]) ORDER BY id
+`
+
+// Which of ids are instructions: an app of the page links to those alone.
+func (q *Queries) ListSubDocIDs(ctx context.Context, ids []int64) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listSubDocIDs, pq.Array(ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSubDocs = `-- name: ListSubDocs :many
-SELECT id, title, emoji, body, platform, position, published, created_at, updated_at FROM sub_docs ORDER BY position, id
+SELECT id, title, emoji, body, platform, position, published, created_at, updated_at, translations, translated_titles FROM sub_docs ORDER BY position, id
 `
 
 func (q *Queries) ListSubDocs(ctx context.Context) ([]SubDoc, error) {
@@ -227,6 +282,8 @@ func (q *Queries) ListSubDocs(ctx context.Context) ([]SubDoc, error) {
 			&i.Published,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Translations,
+			&i.TranslatedTitles,
 		); err != nil {
 			return nil, err
 		}
@@ -283,30 +340,38 @@ func (q *Queries) SetSubDocPosition(ctx context.Context, arg SetSubDocPositionPa
 }
 
 const updateSubDoc = `-- name: UpdateSubDoc :one
-UPDATE sub_docs SET title = $2, emoji = $3, body = $4, platform = $5, published = $6, updated_at = $7
-WHERE id = $1
-RETURNING id, title, emoji, body, platform, position, published, created_at, updated_at
+UPDATE sub_docs SET title = $1, emoji = $2, body = $3, platform = $4, published = $5,
+  translations = COALESCE($6::TEXT, translations), translated_titles = COALESCE($7::TEXT, translated_titles),
+  updated_at = $8
+WHERE id = $9
+RETURNING id, title, emoji, body, platform, position, published, created_at, updated_at, translations, translated_titles
 `
 
 type UpdateSubDocParams struct {
-	ID        int64
-	Title     string
-	Emoji     string
-	Body      string
-	Platform  string
-	Published int64
-	UpdatedAt int64
+	Title            string
+	Emoji            string
+	Body             string
+	Platform         string
+	Published        int64
+	Translations     sql.NullString
+	TranslatedTitles sql.NullString
+	UpdatedAt        int64
+	ID               int64
 }
 
+// No translations given keeps the ones it has, and their titles: a script that knows nothing
+// of them does not drop them.
 func (q *Queries) UpdateSubDoc(ctx context.Context, arg UpdateSubDocParams) (SubDoc, error) {
 	row := q.db.QueryRowContext(ctx, updateSubDoc,
-		arg.ID,
 		arg.Title,
 		arg.Emoji,
 		arg.Body,
 		arg.Platform,
 		arg.Published,
+		arg.Translations,
+		arg.TranslatedTitles,
 		arg.UpdatedAt,
+		arg.ID,
 	)
 	var i SubDoc
 	err := row.Scan(
@@ -319,6 +384,8 @@ func (q *Queries) UpdateSubDoc(ctx context.Context, arg UpdateSubDocParams) (Sub
 		&i.Published,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Translations,
+		&i.TranslatedTitles,
 	)
 	return i, err
 }

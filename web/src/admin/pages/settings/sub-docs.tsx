@@ -1,5 +1,6 @@
 // The subscription page's instructions (sub_docs): pages of Markdown the page lists and
-// opens, in the Mini App too. Each change is saved at once, apart from the page's draft.
+// opens, in the Mini App too, with their title and text in the page's languages. Each change is
+// saved at once, apart from the page's draft.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, FileText, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
@@ -15,8 +16,13 @@ import { same } from "../../../lib/draft";
 import { fieldErrors } from "../../../lib/fields";
 import { Markdown } from "../../../lib/markdown";
 import { PLATFORMS } from "../../../sub/page";
+import { textIn, type TextLang } from "../../../sub/texts";
 import { CardHead } from "../../../components/layout";
 import { Select } from "../../../components/select";
+import { useDiscardGuard, type LangProps } from "./sub-page/parts";
+import { focusMoved, moved } from "./sub-page/reorder";
+import { cleanTexts, docLacks, textOf, textPath, withTextOf } from "./sub-page/text-edits";
+import { NoTranslation, showRefusal, TextLangBar, TextLangSwitch, textHint, textLabel } from "./sub-page/text-lang";
 
 type SubDoc = Schemas["SubDocView"];
 type Body = Schemas["SubDocBody"];
@@ -28,7 +34,7 @@ export function useSubDocs() {
   return useQuery({ queryKey: qk.subDocs, queryFn: ({ signal }) => unwrap(api.GET("/api/v1/sub-docs", { signal })).then((d) => d.items) });
 }
 
-export function DocsSection({ announce }: { announce: (text: string) => void }) {
+export function DocsSection({ announce, lang, setLang }: { announce: (text: string) => void } & LangProps) {
   const docs = useSubDocs();
   const qc = useQueryClient();
   const toast = useToast();
@@ -46,6 +52,8 @@ export function DocsSection({ announce }: { announce: (text: string) => void }) 
     mutationFn: (id: number) => unwrap(api.DELETE("/api/v1/sub-docs/{id}", { params: { path: { id } } })),
     onSuccess: (_, id) => {
       qc.setQueryData<SubDoc[]>(qk.subDocs, (list) => list?.filter((d) => d.id !== id));
+      // An app that opened it has no instruction now.
+      void qc.invalidateQueries({ queryKey: qk.subPageApps });
       setRemoving(null);
       toast.ok(t("settings.page.docDeleted"));
     },
@@ -53,17 +61,12 @@ export function DocsSection({ announce }: { announce: (text: string) => void }) 
   });
   const items = docs.data ?? [];
   const move = (i: number, step: -1 | 1) => {
-    const next = [...items];
-    const [d] = next.splice(i, 1);
-    next.splice(i + step, 0, d!);
+    const d = items[i]!;
+    const next = moved(items, i, step);
     qc.setQueryData(qk.subDocs, next);
     order.mutate(next.map((x) => x.id));
-    announce(t("settings.page.moved", { name: d!.title, n: i + step + 1, total: next.length }));
-    // The button pressed may be gone at the list's end: the other one of the pair keeps the focus.
-    window.requestAnimationFrame(() => {
-      const want = document.getElementById(`doc-${step < 0 ? "up" : "down"}-${d!.id}`) as HTMLButtonElement | null;
-      (want && !want.disabled ? want : document.getElementById(`doc-${step < 0 ? "down" : "up"}-${d!.id}`))?.focus();
-    });
+    announce(t("settings.page.moved", { name: d.title, n: i + step + 1, total: next.length }));
+    focusMoved(step, `doc-up-${d.id}`, `doc-down-${d.id}`);
   };
 
   return (
@@ -71,11 +74,16 @@ export function DocsSection({ announce }: { announce: (text: string) => void }) 
       <CardHead
         title={t("settings.page.docs")}
         sub={t("settings.page.docsSub")}
-        aside={items.length ? (
-          <Button size="sm" variant="primary" onClick={() => setEditing("new")} disabled={items.length >= MAX_DOCS}>
-            <Plus size={16} aria-hidden /> {t("settings.page.docNew")}
-          </Button>
-        ) : null}
+        aside={
+          <div className="flex flex-wrap items-center gap-2">
+            <TextLangSwitch value={lang} onChange={setLang} />
+            {items.length ? (
+              <Button size="sm" variant="primary" onClick={() => setEditing("new")} disabled={items.length >= MAX_DOCS}>
+                <Plus size={16} aria-hidden /> {t("settings.page.docNew")}
+              </Button>
+            ) : null}
+          </div>
+        }
       />
       <QueryBoundary
         query={docs}
@@ -110,6 +118,7 @@ export function DocsSection({ announce }: { announce: (text: string) => void }) 
                     <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-[var(--ink-500)]">
                       <Pill tone={d.published ? "ok" : "off"}>{d.published ? t("settings.page.docPublished") : t("settings.page.docDraft")}</Pill>
                       <span>{d.platform ? PLATFORM_NAMES[d.platform] : t("settings.page.docAll")}</span>
+                      {lang && docLacks(d, lang) ? <NoTranslation /> : null}
                     </div>
                   </div>
                   <button type="button" id={`doc-up-${d.id}`} className="icon-btn" disabled={i === 0 || order.isPending} onClick={() => move(i, -1)} aria-label={t("settings.page.moveUp", { name: d.title })}>
@@ -131,7 +140,7 @@ export function DocsSection({ announce }: { announce: (text: string) => void }) 
         }
       </QueryBoundary>
       {items.length >= MAX_DOCS ? <p className="mt-3 text-xs text-[var(--ink-500)]">{t("errors.api.too_many_docs", { value: MAX_DOCS })}</p> : null}
-      {editing !== null ? <DocEditor key={editing === "new" ? "new" : editing.id} doc={editing === "new" ? null : editing} onClose={() => setEditing(null)} /> : null}
+      {editing !== null ? <DocEditor key={editing === "new" ? "new" : editing.id} doc={editing === "new" ? null : editing} lang={lang} onClose={() => setEditing(null)} /> : null}
       <Confirm
         open={removing !== null}
         onOpenChange={(open) => !open && setRemoving(null)}
@@ -148,13 +157,21 @@ export function DocsSection({ announce }: { announce: (text: string) => void }) 
 
 const EMPTY: Body = { title: "", emoji: "", body: "", platform: "", published: true };
 
-function DocEditor({ doc, onClose }: { doc: SubDoc | null; onClose: () => void }) {
+type DocEditorProps = {
+  doc: SubDoc | null;
+  /** The language of the texts the editor opens in: the page editor's, for an instruction saved before. */
+  lang: TextLang;
+  onClose: () => void;
+};
+
+function DocEditor({ doc, lang: editorLang, onClose }: DocEditorProps) {
   const qc = useQueryClient();
   const toast = useToast();
-  const start: Body = doc ? { title: doc.title, emoji: doc.emoji, body: doc.body, platform: doc.platform as Body["platform"], published: doc.published } : EMPTY;
+  const start: Body = doc ? { title: doc.title, emoji: doc.emoji, body: doc.body, i18n: doc.i18n, platform: doc.platform as Body["platform"], published: doc.published } : EMPTY;
   const [form, setForm] = useState<Body>(start);
+  // A new instruction gets its own texts first: they are what a language without a translation shows.
+  const [lang, setLang] = useState<TextLang>(doc ? editorLang : "");
   const [view, setView] = useState<"write" | "preview">("write");
-  const [leaving, setLeaving] = useState(false);
   const save = useMutation({
     mutationFn: (body: Body) =>
       doc ? unwrap(api.PUT("/api/v1/sub-docs/{id}", { params: { path: { id: doc.id } }, body })) : unwrap(api.POST("/api/v1/sub-docs", { body })),
@@ -163,18 +180,24 @@ function DocEditor({ doc, onClose }: { doc: SubDoc | null; onClose: () => void }
       toast.ok(doc ? t("settings.page.docSaved") : t("settings.page.docCreated"));
       onClose();
     },
-    onError: (e) => {
-      if (!Object.keys(fieldErrors(e)).length) toast.error(errorText(e));
-    },
+    onError: (e) => showRefusal(e, fieldErrors(e), toast, setLang),
   });
   const errors = fieldErrors(save.error);
   const dirty = !same(form, start);
-  const close = () => (dirty ? setLeaving(true) : onClose());
+  const { close, dialog: leaveDialog } = useDiscardGuard(dirty, onClose, t("settings.page.docLeaveText"));
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    save.mutate({ ...form, title: form.title.trim(), emoji: form.emoji.trim() });
+    // The translations go every time: an instruction saved without them keeps the ones it had.
+    save.mutate({ ...form, title: form.title.trim(), emoji: form.emoji.trim(), i18n: cleanTexts(form.i18n) ?? {} });
   };
   const missing = form.title.trim() === "";
+  const title = textOf(form, lang, "title");
+  const body = textOf(form, lang, "body");
+  const titleError = errors[textPath(lang, "title")];
+  const bodyError = errors[textPath(lang, "body")];
+  // What the page shows of the text in the language picked.
+  const shownBody = textIn(lang, form.body, form.i18n, "body");
+  const titleHint = !lang ? undefined : missing ? t("settings.page.docTitleFirst") : textHint(form.title, title);
   return (
     <>
       <Drawer
@@ -188,9 +211,19 @@ function DocEditor({ doc, onClose }: { doc: SubDoc | null; onClose: () => void }
         }
       >
         <form id="sub-doc-form" onSubmit={submit} noValidate className="pt-4">
+          <TextLangBar value={lang} onChange={setLang} className="mb-4" />
           <div className="grid gap-x-3 sm:grid-cols-[minmax(0,1fr)_96px]">
-            <Field label={t("settings.page.docTitle")} htmlFor="doc-title" error={errors.title}>
-              <input id="doc-title" className="input" value={form.title} maxLength={80} onChange={(e) => setForm({ ...form, title: e.target.value })} aria-invalid={!!errors.title} autoFocus={!doc} />
+            <Field label={textLabel(t("settings.page.docTitle"), lang)} htmlFor="doc-title" hint={titleHint} error={titleError}>
+              <input
+                id="doc-title"
+                className="input"
+                value={title}
+                maxLength={80}
+                placeholder={lang ? form.title : undefined}
+                onChange={(e) => setForm(withTextOf(form, lang, "title", e.target.value))}
+                aria-invalid={!!titleError}
+                autoFocus={!doc}
+              />
             </Field>
             <Field label={t("settings.page.emoji")} htmlFor="doc-emoji" error={errors.emoji}>
               <input id="doc-emoji" className="input text-center" value={form.emoji} maxLength={16} onChange={(e) => setForm({ ...form, emoji: e.target.value })} aria-invalid={!!errors.emoji} autoComplete="off" />
@@ -210,7 +243,7 @@ function DocEditor({ doc, onClose }: { doc: SubDoc | null; onClose: () => void }
           <div className="field">
             <div className="flex items-center justify-between gap-2">
               <label htmlFor="doc-body" className="text-[13px] font-medium text-[var(--ink-700)]">
-                {t("settings.page.docBody")}
+                {textLabel(t("settings.page.docBody"), lang)}
               </label>
               <Segmented
                 label={t("settings.page.docBody")}
@@ -227,40 +260,29 @@ function DocEditor({ doc, onClose }: { doc: SubDoc | null; onClose: () => void }
                 id="doc-body"
                 className="input mono"
                 rows={16}
-                value={form.body}
+                value={body}
                 maxLength={20000}
-                onChange={(e) => setForm({ ...form, body: e.target.value })}
-                aria-invalid={!!errors.body}
+                onChange={(e) => setForm(withTextOf(form, lang, "body", e.target.value))}
+                aria-invalid={!!bodyError}
                 aria-describedby="doc-body-note"
-                placeholder={t("settings.page.docBodyPlaceholder")}
+                placeholder={lang ? form.body : t("settings.page.docBodyPlaceholder")}
               />
             ) : (
-              <div className="panel-soft min-h-[200px] p-4">{form.body.trim() ? <Markdown text={form.body} /> : <p className="text-[13px] text-[var(--ink-500)]">{t("settings.page.docPreviewEmpty")}</p>}</div>
+              <div className="panel-soft min-h-[200px] p-4">{shownBody.trim() ? <Markdown text={shownBody} /> : <p className="text-[13px] text-[var(--ink-500)]">{t("settings.page.docPreviewEmpty")}</p>}</div>
             )}
-            {errors.body ? (
+            {bodyError ? (
               <span className="err" role="alert" id="doc-body-note">
-                {errors.body}
+                {bodyError}
               </span>
             ) : (
               <span className="hint" id="doc-body-note">
-                {t("settings.page.markdownHint")}
+                {lang ? `${textHint(form.body, body)} ${t("settings.page.markdownHint")}` : t("settings.page.markdownHint")}
               </span>
             )}
           </div>
         </form>
       </Drawer>
-      <Confirm
-        open={leaving}
-        onOpenChange={setLeaving}
-        title={t("settings.page.docLeaveTitle")}
-        text={t("settings.page.docLeaveText")}
-        confirm={t("settings.page.discard")}
-        danger
-        onConfirm={() => {
-          setLeaving(false);
-          onClose();
-        }}
-      />
+      {leaveDialog}
     </>
   );
 }

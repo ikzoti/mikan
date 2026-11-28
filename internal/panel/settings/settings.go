@@ -160,9 +160,13 @@ const (
 	KeyLegacySubSecret = "legacy_sub_secret"
 	// KeyQuietHour is the UTC hour the slot pool is refilled, which reconnects QUIC clients.
 	KeyQuietHour = "quiet_hour_utc"
-	// KeySubPage is the subscription page as the admin built it (subpage.Config): its look,
+	// KeySubPage is the subscription page as the admin built it (subpage.Page): its look,
 	// blocks, apps and own CSS; unset: the page as it always was.
 	KeySubPage = "sub_page"
+	// KeySubApps is what the admin changed of the page's apps (subpage.AppsConfig): their
+	// downloads and instructions, shared by the panel's page and every group's; unset: the
+	// built-in apps as they come. The order and the hidden ones are each page's (KeySubPage).
+	KeySubApps = "sub_apps"
 )
 
 // Switch is an on/off setting with its default: read it with On, so the default lives

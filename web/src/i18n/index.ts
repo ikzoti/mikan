@@ -9,7 +9,8 @@
 import { useSyncExternalStore } from "react";
 import type ru from "./ru.json";
 
-type Locale = "ru" | "en";
+/** The panel's languages, the subscription page's too: the server's list of them (subpage.Locales) follows this one. */
+export type Locale = "ru" | "en";
 export const LOCALES: { id: Locale; label: string }[] = [
   { id: "ru", label: "Русский" },
   { id: "en", label: "English" },

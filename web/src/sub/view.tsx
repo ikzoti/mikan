@@ -1,7 +1,7 @@
 // The subscription page's body as the admin set it up (page.ts): its header, backdrop and
 // blocks in their order. The page (main.tsx) gives it the subscriber's data; the admin's
 // preview gives it a sample, so both show the same thing.
-import { Check, ChevronLeft, ChevronRight, Copy, FileText, LifeBuoy, MapPin, QrCode, Send } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileText, LifeBuoy, MapPin, QrCode, Send } from "lucide-react";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { Atmosphere } from "../components/atmosphere";
 import { Bar, Button, Pill, QR, Ring, Skeleton } from "../components/ui";
@@ -9,10 +9,11 @@ import { t } from "../i18n";
 import { bytes, dateLong, dateShort, expiryText } from "../lib/format";
 import { Markdown } from "../lib/markdown";
 import { safeHref } from "../lib/url";
-import { APPS, detect, enc, type Platform } from "./apps";
+import { appIcon, appNote, appRows, detect, waysToGet, type AppCatalog, type AppRow, type CatalogApp, type IconSource, type Platform, type Source } from "./apps";
 import { Devices } from "./devices";
 import { outside } from "./net";
 import { backdropStyle, blockTitle, MINI_APP_ONLY, orderApps, PLATFORMS, type DocItem, type DocView, type PageBlock, type PageConfig, type PageLook } from "./page";
+import { localApp, localBlock, localDoc, textIn, type TextLang } from "./texts";
 import type { Info } from "./types";
 
 const PLATFORM_LABEL: Record<Platform, string> = { ios: "iPhone", android: "Android", windows: "Windows", macos: "Mac", linux: "Linux" };
@@ -29,9 +30,10 @@ export function PageBackdrop({ look, image }: { look: PageLook; image?: string }
   );
 }
 
-/** The column the page lives in, with the brand on top. */
-export function PageShell({ config, brand, logo, right, children }: { config: PageConfig; brand: string; logo?: string; right?: ReactNode; children: ReactNode }) {
+/** The column the page lives in, with the brand on top; lang is the language of the admin's texts. */
+export function PageShell({ config, brand, logo, lang, right, children }: { config: PageConfig; brand: string; logo?: string; lang: TextLang; right?: ReactNode; children: ReactNode }) {
   const b = config.brand;
+  const subtitle = textIn(lang, b.subtitle, b.i18n, "subtitle");
   const mark =
     b.logo === "image" && logo ? (
       <img src={logo} alt="" width={28} height={28} className="h-7 w-7 shrink-0 rounded-[9px] object-cover" decoding="async" />
@@ -48,10 +50,10 @@ export function PageShell({ config, brand, logo, right, children }: { config: Pa
     <main className="calm-glass mx-auto flex max-w-[440px] flex-col gap-3 px-4 pt-[calc(24px+max(env(safe-area-inset-top),var(--tg-top,0px)))] pb-[calc(40px+max(env(safe-area-inset-bottom),var(--tg-bottom,0px)))]">
       <div className="flex items-center gap-2 px-1 pb-1">
         {mark}
-        {b.subtitle ? (
+        {subtitle ? (
           <span className="flex min-w-0 flex-col">
             <span className="font-display truncate text-[15px] leading-5 font-semibold tracking-tight">{brand}</span>
-            <span className="truncate text-xs text-[var(--ink-500)]">{b.subtitle}</span>
+            <span className="truncate text-xs text-[var(--ink-500)]">{subtitle}</span>
           </span>
         ) : (
           <span className="font-display text-[15px] font-semibold tracking-tight">{brand}</span>
@@ -65,11 +67,17 @@ export function PageShell({ config, brand, logo, right, children }: { config: Pa
 
 type BlocksProps = {
   config: PageConfig;
+  /** The language of the admin's texts: the visitor's on the page, the one picked in the admin's preview. */
+  lang: TextLang;
   info: Info;
   subURL: string;
   /** The page runs as the bot's Mini App: the shop and promo codes show, links leave through Telegram. */
   tgMode: boolean;
   docs: DocItem[];
+  /** The apps the page may show (the server's catalogue), which config.apps orders and hides. */
+  catalog: AppCatalog;
+  /** Where the apps' pictures are: the page's own links, or the admin's in the preview. */
+  iconSrc: IconSource;
   /** The Mini App's own sections, built by the page: promo codes, the shop and the packages. */
   promo?: ReactNode;
   shop?: ReactNode;
@@ -80,16 +88,17 @@ type BlocksProps = {
   /** Traffic packages on sale for the subscription on screen: for the main traffic, for these groups by name; go shows them. */
   buy?: { main: boolean; pools: Set<string>; go: () => void };
   reload: () => Promise<void>;
-  onOpenDoc: (id: number) => void;
+  /** Opens an instruction; back on the page, the focus goes to the element of id `from` (the instruction's row of the list without one). */
+  onOpenDoc: (id: number, from?: string) => void;
   /** The platform tab open first; the admin's choice (or the device) when not given. */
   platform?: Platform;
 };
 
-/** The page's blocks in the admin's order, the ones turned off left out. */
+/** The page's blocks in the admin's order, the ones turned off left out, their texts in the language of the admin's texts. */
 export function PageBlocks(p: BlocksProps) {
   return (
     <>
-      {p.config.blocks.map((b) => (b.on && (p.tgMode || !MINI_APP_ONLY.includes(b.type)) ? <Fragment key={b.id}>{block(b, p)}</Fragment> : null))}
+      {p.config.blocks.map((b) => (b.on && (p.tgMode || !MINI_APP_ONLY.includes(b.type)) ? <Fragment key={b.id}>{block(localBlock(b, p.lang), p)}</Fragment> : null))}
     </>
   );
 }
@@ -110,11 +119,11 @@ function block(b: PageBlock, p: BlocksProps): ReactNode {
     case "devices":
       return info.binding || info.devices?.length ? <Devices info={info} subURL={p.subURL} reload={p.reload} title={b.title} /> : null;
     case "apps":
-      return <Apps key={p.platform} block={b} config={p.config} subURL={p.subURL} brand={info.brand} happ={info.happ_link} blocked={info.blocked_apps} tgMode={p.tgMode} platform={p.platform} />;
+      return <Apps key={p.platform} block={b} info={info} config={p.config} lang={p.lang} catalog={p.catalog} iconSrc={p.iconSrc} docs={p.docs} subURL={p.subURL} tgMode={p.tgMode} platform={p.platform} onOpenDoc={p.onOpenDoc} />;
     case "guide":
       return <Guide block={b} />;
     case "instructions":
-      return p.docs.length ? <Instructions block={b} docs={p.docs} onOpen={p.onOpenDoc} /> : null;
+      return p.docs.length ? <Instructions block={b} docs={p.docs.map((d) => localDoc(d, p.lang))} onOpen={p.onOpenDoc} /> : null;
     case "link":
       return <SubLink block={b} subURL={p.subURL} qr={p.config.apps.qr} />;
     case "reissue":
@@ -257,12 +266,31 @@ export function firstPlatform(config: PageConfig, detected: Platform): Platform 
   return config.apps.platform === "auto" ? detected : config.apps.platform;
 }
 
-function Apps({ block: b, config, subURL, brand, happ, blocked, tgMode, platform }: { block: PageBlock; config: PageConfig; subURL: string; brand: string; happ?: string; blocked?: string[]; tgMode: boolean; platform?: Platform }) {
-  // The apps the admin turned away are not offered: they would be given a stub, not the servers.
-  const lists = Object.fromEntries(PLATFORMS.map((k) => [k, orderApps(APPS[k], config.apps[k]).filter((a) => !blocked?.includes(a.id))])) as Record<Platform, (typeof APPS)[Platform]>;
+/** Each platform's apps the page offers (appRows), in the page's order, the admin's texts of them in lang. */
+function platformRows(catalog: AppCatalog, config: PageConfig, lang: TextLang, info: Info, subURL: string): Record<Platform, AppRow[]> {
+  const values = { url: subURL, brand: info.brand, happ: info.happ_link };
+  const rows = (k: Platform) => appRows(orderApps(catalog[k], config.apps[k]), info.blocked_apps, values).map((r) => ({ ...r, app: localApp(r.app, lang) }));
+  return Object.fromEntries(PLATFORMS.map((k) => [k, rows(k)])) as Record<Platform, AppRow[]>;
+}
+
+// Where "Connect a device" was left when one of its instructions opened: the page shows the
+// instruction in place of its blocks, and the tab and the open row come back with them,
+// unless the tab to open first has changed meanwhile (the admin's preview).
+let appsLeft: { want: Platform; tab: Platform; open: string | null } | undefined;
+
+type AppsProps = Pick<BlocksProps, "config" | "lang" | "catalog" | "iconSrc" | "docs" | "subURL" | "tgMode" | "platform" | "onOpenDoc"> & { block: PageBlock; info: Info };
+
+function Apps({ block: b, info, config, lang, catalog, iconSrc, docs, subURL, tgMode, platform, onOpenDoc }: AppsProps) {
+  const lists = platformRows(catalog, config, lang, info, subURL);
   const shown = PLATFORMS.filter((k) => lists[k].length > 0);
   const want = platform ?? firstPlatform(config, detectOnce());
-  const [current, setCurrent] = useState<Platform>(shown.includes(want) ? want : (shown[0] ?? want));
+  const left = appsLeft?.want === want ? appsLeft : undefined;
+  const [current, setCurrent] = useState<Platform>(() => left?.tab ?? (shown.includes(want) ? want : (shown[0] ?? want)));
+  // The app whose ways to get it are open under its row.
+  const [open, setOpen] = useState<string | null>(() => left?.open ?? null);
+  useEffect(() => {
+    appsLeft = undefined;
+  }, []);
   if (shown.length === 0) return null;
   const tab = shown.includes(current) ? current : shown[0]!;
   return (
@@ -275,7 +303,10 @@ function Apps({ block: b, config, subURL, brand, happ, blocked, tgMode, platform
               key={k}
               type="button"
               aria-pressed={tab === k}
-              onClick={() => setCurrent(k)}
+              onClick={() => {
+                setCurrent(k);
+                setOpen(null);
+              }}
               className="h-8 flex-auto shrink-0 rounded-[10px] px-1.5 text-xs font-semibold whitespace-nowrap text-[var(--ink-600)] aria-pressed:bg-[var(--surface-solid)] aria-pressed:text-[var(--ink-900)] aria-pressed:shadow-sm"
             >
               {PLATFORM_LABEL[k]}
@@ -284,30 +315,117 @@ function Apps({ block: b, config, subURL, brand, happ, blocked, tgMode, platform
         </div>
       ) : null}
       <div className="row-list">
-        {lists[tab].map((a, i) => (
-          <div key={a.name} className="grid grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 py-2">
-            <span className="font-display grid h-10 w-10 place-items-center rounded-xl border border-[var(--hairline)] bg-[var(--surface-solid)] text-sm font-semibold text-[var(--ink-700)]" aria-hidden>
-              {a.name[0]}
-            </span>
-            <div className="min-w-0">
-              <div className="text-sm font-semibold">{a.name}</div>
-              <div className="text-xs text-[var(--ink-500)]">
-                {i === 0 ? <span className="font-medium text-[var(--mikan-700)]">{t("sub.recommended")} · </span> : null}
-                {t(`sub.notes.${a.note}`)}
-              </div>
-            </div>
-            <a
-              className={i === 0 ? "btn btn-primary btn-sm" : "btn btn-glass btn-sm"}
-              href={a.link(subURL, brand, happ)}
-              title={tgMode ? t("sub.tgBrowser") : undefined}
-              {...outside(subURL + "#open=" + enc(a.name))}
-            >
-              {t("common.add")}
-            </a>
-          </div>
+        {lists[tab].map((row, i) => (
+          <AppItem
+            key={row.app.id}
+            row={row}
+            iconSrc={iconSrc}
+            first={i === 0}
+            docs={docs}
+            subURL={subURL}
+            tgMode={tgMode}
+            open={open === row.app.id}
+            onToggle={() => setOpen(open === row.app.id ? null : row.app.id)}
+            onOpenDoc={(id) => {
+              appsLeft = { want, tab, open };
+              onOpenDoc(id, `app-doc-${row.app.id}`);
+            }}
+          />
         ))}
       </div>
     </section>
+  );
+}
+
+const QUIET_LINK = "link-btn mt-1 inline-flex min-h-6 items-center gap-1 text-xs";
+
+type AppItemProps = { row: AppRow; iconSrc: IconSource; first: boolean; docs: DocItem[]; subURL: string; tgMode: boolean; open: boolean; onToggle: () => void; onOpenDoc: (id: number) => void };
+
+/** An app's row: its icon, name and note, how to get it and "Add". */
+function AppItem({ row: { app: a, link }, iconSrc, first, docs, subURL, tgMode, open, onToggle, onOpenDoc }: AppItemProps) {
+  const { sources, doc, toggles } = waysToGet(a, (id) => docs.some((d) => d.id === id));
+  const panel = `app-get-${a.id}`;
+  const note = appNote(a);
+  return (
+    <div className="grid grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 py-2">
+      <AppMark app={a} src={iconSrc} />
+      <div className="min-w-0">
+        <div className="text-sm font-semibold">{a.name}</div>
+        <div className="text-xs text-[var(--ink-500)]">
+          {first ? (
+            <span className="font-medium text-[var(--mikan-700)]">
+              {t("sub.recommended")}
+              {note ? " · " : ""}
+            </span>
+          ) : null}
+          {note}
+        </div>
+        <GetApp app={a} sources={sources} doc={doc} panel={toggles ? panel : undefined} open={open} onToggle={onToggle} onOpenDoc={onOpenDoc} />
+      </div>
+      {link ? (
+        <a className={first ? "btn btn-primary btn-sm" : "btn btn-glass btn-sm"} href={link} title={tgMode ? t("sub.tgBrowser") : undefined} {...outside(subURL + "#open=" + encodeURIComponent(a.id))}>
+          {t("common.add")}
+        </a>
+      ) : null}
+      {open && toggles ? (
+        <div id={panel} role="group" aria-label={t("sub.downloadOf", { name: a.name })} className="col-span-2 col-start-2 flex flex-wrap gap-2">
+          {sources.map((s, i) => (
+            <a key={i} className="btn btn-glass btn-sm" href={s.href} target="_blank" rel="noreferrer noopener" {...outside(s.href)}>
+              {s.label}
+            </a>
+          ))}
+          {doc ? <GuideButton app={a} doc={doc} className="btn btn-glass btn-sm" onOpenDoc={onOpenDoc} /> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const MARK = "h-10 w-10 shrink-0 rounded-xl border border-[var(--hairline)] bg-[var(--surface-solid)]";
+
+/** An app's icon, 40 pixels square: its picture, its emoji or the first letter of its name. A picture that does not load is the letter. */
+export function AppMark({ app, src }: { app: Pick<CatalogApp, "id" | "name" | "icon">; src: IconSource }) {
+  const [failed, setFailed] = useState("");
+  const icon = appIcon(app, (a) => {
+    const url = src(a);
+    return url === failed ? undefined : url;
+  });
+  if (icon.kind === "image") return <img src={icon.src} alt="" width={40} height={40} decoding="async" className={`${MARK} object-cover`} onError={() => setFailed(icon.src)} />;
+  return (
+    <span className={`${MARK} grid place-items-center ${icon.kind === "emoji" ? "text-[22px] leading-none" : "font-display text-sm font-semibold text-[var(--ink-700)]"}`} aria-hidden>
+      {icon.kind === "emoji" ? icon.emoji : icon.letter}
+    </span>
+  );
+}
+
+/** The way to get an app, under its note: the button that shows its sources (panel, the id of what it shows), its one download, or its instruction. */
+function GetApp({ app: a, sources, doc, panel, open, onToggle, onOpenDoc }: { app: CatalogApp; sources: Source[]; doc: number; panel?: string; open: boolean; onToggle: () => void; onOpenDoc: (id: number) => void }) {
+  const label = t("sub.downloadOf", { name: a.name });
+  if (panel) {
+    return (
+      <button type="button" className={QUIET_LINK} aria-expanded={open} aria-controls={panel} aria-label={label} onClick={onToggle}>
+        <Download size={14} aria-hidden /> {t("sub.download")}
+        <ChevronDown size={14} className={`transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
+      </button>
+    );
+  }
+  const only = sources[0];
+  if (only) {
+    return (
+      <a className={QUIET_LINK} href={only.href} target="_blank" rel="noreferrer noopener" title={only.label} aria-label={label} {...outside(only.href)}>
+        <Download size={14} aria-hidden /> {t("sub.download")}
+      </a>
+    );
+  }
+  return doc ? <GuideButton app={a} doc={doc} className={QUIET_LINK} onOpenDoc={onOpenDoc} /> : null;
+}
+
+/** The button of an app's instruction; back from it, the page puts the focus on it again (its id). */
+function GuideButton({ app, doc, className, onOpenDoc }: { app: CatalogApp; doc: number; className: string; onOpenDoc: (id: number) => void }) {
+  return (
+    <button type="button" id={`app-doc-${app.id}`} className={className} onClick={() => onOpenDoc(doc)} aria-label={t("sub.guideOf", { name: app.name })}>
+      <FileText size={14} aria-hidden /> {t("sub.guide")}
+    </button>
   );
 }
 
@@ -466,28 +584,30 @@ function Links({ block: b }: { block: PageBlock }) {
   );
 }
 
-/** An instruction on a screen of its own, with the way back to the page. */
-export function DocScreen({ item, load, onBack, tgMode }: { item?: DocItem; load: () => Promise<DocView>; onBack: () => void; tgMode: boolean }) {
-  const [doc, setDoc] = useState<DocView | "loading" | "failed">("loading");
+/** An instruction on a screen of its own, with the way back to the page; lang is the language of the admin's texts. */
+export function DocScreen({ item, load, onBack, tgMode, lang }: { item?: DocItem; load: () => Promise<DocView>; onBack: () => void; tgMode: boolean; lang: TextLang }) {
+  const [loaded, setLoaded] = useState<DocView | "loading" | "failed">("loading");
+  // Texts are picked at render time: a switch of the language shows the other one at once.
+  const doc = typeof loaded === "object" ? localDoc(loaded, lang) : loaded;
   const [attempt, setAttempt] = useState(0);
   const heading = useRef<HTMLHeadingElement>(null);
   const loadRef = useRef(load);
   loadRef.current = load;
   useEffect(() => {
     let live = true;
-    setDoc("loading");
+    setLoaded("loading");
     loadRef
       .current()
-      .then((d) => live && setDoc(d))
-      .catch(() => live && setDoc("failed"));
+      .then((d) => live && setLoaded(d))
+      .catch(() => live && setLoaded("failed"));
     return () => {
       live = false;
     };
   }, [attempt]);
   useEffect(() => {
-    if (typeof doc === "object") heading.current?.focus();
-  }, [doc]);
-  const shown = typeof doc === "object" ? doc : item;
+    if (typeof loaded === "object") heading.current?.focus();
+  }, [loaded]);
+  const shown = typeof doc === "object" ? doc : item && localDoc(item, lang);
   return (
     <>
       <div>

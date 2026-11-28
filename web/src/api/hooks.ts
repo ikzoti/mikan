@@ -1,4 +1,5 @@
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 import type { UsersSearch } from "../admin/search";
 import { nextOffset } from "../lib/paging";
 import { api, unwrap, type Schemas, type User } from "./client";
@@ -54,6 +55,7 @@ export const qk = {
   torrentHits: (user: number) => ["torrent", "hits", user] as const,
   speedTests: (node: number) => ["speedtests", node] as const,
   subPage: ["sub-page"] as const,
+  subPageApps: ["sub-page-apps"] as const,
   subDocs: ["sub-docs"] as const,
   subApps: ["sub-apps"] as const,
   subRules: ["sub-rules"] as const,
@@ -639,6 +641,49 @@ export function useSpeedTests(node: number | undefined) {
 /** The known apps and which of them the admin turned away. */
 export function useSubApps() {
   return useQuery({ queryKey: qk.subApps, queryFn: ({ signal }) => unwrap(api.GET("/api/v1/sub-apps", { signal })) });
+}
+
+/** The ids of the apps turned away in Settings → Subscription → Apps: the subscription page does not offer them. */
+export function useBlockedAppIds(): string[] {
+  const known = useSubApps();
+  return useMemo(() => (known.data?.apps ?? []).filter((a) => a.blocked).map((a) => a.id), [known.data]);
+}
+
+const subPageAppsQuery = {
+  queryKey: qk.subPageApps,
+  queryFn: ({ signal }: { signal: AbortSignal }) => unwrap(api.GET("/api/v1/sub-page/apps", { signal })),
+};
+
+/** The subscription page's apps: what the admin changed of them, the built-in ones and the catalogue every page shows. */
+export function useSubPageApps() {
+  return useQuery(subPageAppsQuery);
+}
+
+/**
+ * Saves the page's apps. PUT takes the whole document, so change is made to the document as
+ * the server has it a moment before, read again rather than the one in the cache: a dialog's
+ * save keeps what another admin or tab saved meanwhile. The answer is the new view, kept as
+ * the query's.
+ */
+export function useSubPageAppsMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (change: (apps: Schemas["AppsConfig"]) => Schemas["AppsConfig"]) => {
+      const now = await qc.fetchQuery({ ...subPageAppsQuery, staleTime: 0 });
+      return unwrap(api.PUT("/api/v1/sub-page/apps", { body: change(now.apps) }));
+    },
+    onSuccess: (view) => qc.setQueryData(qk.subPageApps, view),
+  });
+}
+
+/** Uploads an app's icon (the file in base64) or, with no data, removes it; the apps' view is read again for its icons. */
+export function useAppIconMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data?: string }) =>
+      data ? unwrap(api.PUT("/api/v1/sub-page/apps/{id}/icon", { params: { path: { id } }, body: { data } })) : unwrap(api.DELETE("/api/v1/sub-page/apps/{id}/icon", { params: { path: { id } } })),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: qk.subPageApps }),
+  });
 }
 
 /** The response rules of the subscription, and what the editor needs to keep within their limits. */

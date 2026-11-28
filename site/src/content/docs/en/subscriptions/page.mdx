@@ -11,15 +11,35 @@ Further down the page: a step-by-step "How to connect" guide, the link itself an
 
 A [group of clients](/mikan/en/billing/groups/#appearance) may have a page of its own: its clients see it at the subscription link instead of the page for everyone. The brand, its colour, the images and the instructions are shared by every page, and the Mini App keeps the page for everyone.
 
+### Texts in two languages
+
+:::note[New in 0.5.2.1]
+Translations of your own texts are new in 0.5.2.1.
+:::
+
+The subscription page comes in Russian and English, and the visitor picks the language with the RU/EN switch in its header. The page's own words follow it by themselves, and your texts can have a translation into each of these languages: block headings, text and button blocks, the line under the name, the apps' captions and download buttons, the guides' titles and texts. A visitor sees the translation into their language, and the base text where there is none.
+
+In **Settings → Subscription page** the blocks, the name, the apps and the guides have a "Base / Русский / English" switch. The base text is written as before. With a language picked, the fields with the language in their name edit its translation and show the base text as a hint; links, emoji and the order are shared by every language. An empty translation means the base text. Blocks, apps and guides that lack a translation are marked "No translation". The preview has the same switch, shared with the sections: a language picked in the preview switches the fields to its translation too. The preview shows your texts in the language picked and the page's own words in the panel's language.
+
+Through the API the translations sit next to the base fields, in `i18n` by language (`ru`, `en`), with the same field names: `{"title": "Подключение", "i18n": {"en": {"title": "Connect"}}}`. They are:
+
+- in the page's document (`/api/v1/sub-page` and `/api/v1/groups/{id}/page`): `brand.i18n` (`subtitle`), `blocks[].i18n` (`title`, and `text` for a `text` block) and `blocks[].links[].i18n` (`label`);
+- in the apps (`/api/v1/sub-page/apps`): on a download button (`label`) and on an own app's platform (`note`); in the catalogue an own app has its caption's translations;
+- in the guides (`/api/v1/sub-docs`): `title` and `body`. A `PUT` without `i18n` keeps the translations as they were, and `{}` removes them.
+
+A translation follows the rules of the field it translates: the same length, one line where the field is one line, Markdown images over https only. The API refuses a language not on the list and a translated text of a block that has no text, and drops empty translations.
+
 ## Apps
 
 | Platform | Apps on the page |
 |---|---|
 | iPhone | Happ, INCY, Streisand, v2RayTun |
-| Android | Mikan, Happ, ClashFest, INCY, v2RayTun, Hiddify |
-| Windows | Kabosu, Koala Clash, SlothClash, Hiddify, Clash Verge Rev |
+| Android | Mikan, ClashFest, Happ, INCY, v2RayTun, Hiddify |
+| Windows | Kabosu, Koala Clash, SlothClash, Clash Verge Rev, Hiddify |
 | Mac | Kabosu, Clash Verge Rev, SlothClash, Happ, Hiddify |
 | Linux | Kabosu, SlothClash, Clash Verge Rev, Hiddify |
+
+The table shows the default order: the mihomo apps first, since they take everything the subscription has, with mikan's own Mikan and Kabosu ahead of them. The page's settings change the order and which apps show, see [below](#order-download-buttons-and-guides).
 
 The subscription recognizes the app by its User-Agent header and serves the matching format:
 
@@ -35,6 +55,45 @@ Xray configs for Happ and INCY, and the `xray` value of the `?format=` parameter
 Each app gets only the protocols it can run, see [the table in presets](/mikan/en/protocols/presets/#who-gets-what). You can also set the format by hand with the parameter `?format=clash`, `singbox`, `xray`, `uri` or `html`. Every header and field the subscription reads and sends is described in the [Subscription specification](/mikan/en/subscriptions/spec/).
 
 Apps refresh the subscription hourly, which is how new ports and keys reach clients on their own.
+
+### Order, download buttons and guides
+
+:::note[New in 0.5.2.1]
+Download buttons, guides, icons and own apps are new in 0.5.2.1.
+:::
+
+In **Settings → Subscription page → Apps** each platform has a list of its own. A switch shows or hides an app, the arrows change the order, and the page marks the first app "Recommended". Each page has its own order and hidden apps, a group's page too. A page doesn't send its visitors the apps it hides: an app hidden on the page for everyone and on the other groups' pages reaches only the clients of the group whose page shows it. An app blocked in **Settings → Subscription → Apps** is marked "Blocked" in the list: the page doesn't offer it, and neither does the preview.
+
+The pencil button of an app opens its settings on the chosen platform:
+
+- **Icon**: the first letter of the name, an emoji or a PNG, JPEG or WebP picture up to 128 KB, square works best (SVG isn't accepted). An app has one icon on every platform; the picture is uploaded when you save.
+- **Download buttons**: up to five links, https:// only. A button leads to the App Store, Google Play, GitHub, your own mirror, or a link with a label. The label is optional, without one the source names the button; a link needs one.
+- **Guide**: one of the guides on the Guides tab. A draft shows on the page once published, and a deleted guide leaves the app too.
+
+The icon, the buttons and the guide are shared by every page, the groups' pages included. They are saved right away, apart from the page's draft. "Back to built-in" resets the app's buttons and guide on that platform.
+
+The built-in apps come with buttons of their own: the App Store and Google Play pages and the GitHub releases their developers link, plus F-Droid for ClashFest and the Microsoft Store for Hiddify on Windows. The Russian App Store has no Happ (for iPhone and Mac), INCY, Streisand or Hiddify for Mac; the App Stores of Kazakhstan and Belarus have them. So Happ, INCY and Streisand also get a button with the developer's site, which says how to install them. v2RayTun has no buttons on the iPhone: its App Store page doesn't open. You can replace the buttons of any app with your own, such as a link to your mirror.
+
+On the page, "Download" shows under the app's name. With one button and no guide, "Download" opens the link at once; otherwise it opens all the buttons and "Guide" under the row. An app with a guide and no buttons has "Guide" under its name. In the Mini App the links open in the browser.
+
+### Own apps
+
+"Add own app" under the list adds an app the built-in ones lack, up to 20 in all. Its settings:
+
+- **Name**, up to 40 characters, and **core**: Clash and mihomo, Xray, sing-box or others. An app on mihomo comes before the others.
+- **Icon**: the letter, an emoji or a picture, as for the built-in apps. The picture is uploaded once the app is saved.
+- **Link that adds the subscription**. `{url}` becomes the subscription's address as it is, `{url_enc}` the same percent-encoded and `{name}` the brand percent-encoded, as in `myapp://install-config?url={url_enc}&name={name}`. Under the field you see the link the page opens for a sample subscription, or why the link is refused. The link starts with the app's scheme in lowercase (`http`, `javascript`, `file` and the like are refused), holds printable Latin characters only, up to 500, and must have `{url}` or `{url_enc}`. With no link the app has no "Add" button, only its download buttons and guide.
+- **Platforms**, one at least. Each has its own caption under the name (up to 80 characters), download buttons and guide.
+
+On each of its platforms the app comes after the built-in ones, in the order you added them; an app on mihomo comes right after the built-in mihomo apps, ahead of the others. Then it moves and hides like any other. "Delete app" takes it off every page, with its icon.
+
+Through the API:
+
+- `GET /api/v1/sub-page/apps` gives the changes and the own apps (`apps`), the built-in apps (`presets`), the catalogue the pages show (`catalog`) and the uploaded icon pictures by app id (`icons`). An API key may read it. When the saved document can't be read (it was edited by hand or written by a newer version), the answer has an empty `apps` and `"unreadable": true`, the pages show the built-in apps, and `PUT` replaces the document.
+- `PUT /api/v1/sub-page/apps` takes the `apps` document whole, from the admin's session only: `presets` holds the changes of the built-in apps (`icon` and `platforms`), `own` the own apps. What it leaves out is built-in for the app, and an own app it leaves out is deleted with its icon picture.
+- `PUT` and `DELETE /api/v1/sub-page/apps/{id}/icon` upload (`{"data": "<base64>"}`) and remove an icon picture, from the admin's session only; `GET` gives it. A picture can go to a built-in app or to an own one already saved, and the page shows it while the icon's `kind` is `image`.
+- In the catalogue an app has `own` (whether it is an own app) and `icon`: `kind`, `emoji` or `path`, the picture's path from the subscription path. An own app's `note` is its caption, and its `link` may be empty.
+- The `order` and `hidden` lists in the page's `config.apps` (`/api/v1/sub-page` and `/api/v1/groups/{id}/page`) hold app ids, up to 32 each: `happ`, `koala`, `verge` and so on. The old names, such as `Clash Verge Rev`, are still accepted and read as ids.
 
 ## Subscription settings
 

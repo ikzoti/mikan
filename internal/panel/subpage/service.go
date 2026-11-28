@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html"
 	"net/http"
 	"slices"
@@ -16,7 +17,7 @@ import (
 	"mikan/internal/panel/store/db"
 )
 
-// The page's images, one of each.
+// The page's images, one of each, and an icon of each app (AppIconAsset).
 const (
 	AssetLogo       = "logo"
 	AssetBackground = "background"
@@ -24,11 +25,13 @@ const (
 
 // AssetLimit is how big an image of name may be; 0: no such image.
 func AssetLimit(name string) int {
-	switch name {
-	case AssetLogo:
+	switch {
+	case name == AssetLogo:
 		return 512 << 10
-	case AssetBackground:
+	case name == AssetBackground:
 		return 2 << 20
+	case appIconRe.MatchString(name):
+		return AppIconLimit
 	}
 	return 0
 }
@@ -39,7 +42,16 @@ var (
 	ErrImageType = errors.New("image_type")
 	// ErrImageTooBig: over AssetLimit.
 	ErrImageTooBig = errors.New("image_too_big")
+	// ErrUnreadable: a value the admin stored does not read, edited by hand or written by a
+	// newer release. What reads it gives what does read along with the error, for the caller
+	// to log: the built-in apps in place of the admin's (Apps), an instruction in its own words
+	// in place of its translations (Doc, Public). It goes to the log, not to the web: its text
+	// is no code of errors.api.
+	ErrUnreadable = errors.New("unreadable value")
 )
+
+// fatal says whether err keeps what was asked from being given: any error but ErrUnreadable.
+func fatal(err error) bool { return err != nil && !errors.Is(err, ErrUnreadable) }
 
 // CheckImage says what kind of image data is, the way a browser would sniff it, and takes
 // only PNG, JPEG and WebP within the image's limit: the type is fixed by what the bytes
@@ -89,22 +101,50 @@ func (s *Service) Page(ctx context.Context) (Page, error) {
 // PageOf is the page the clients of group see: the group's own when it has one, the panel's
 // otherwise (and for group 0). A group's page that does not read is shown as the panel's.
 func (s *Service) PageOf(ctx context.Context, group int64) (Page, error) {
+	c, _, err := s.pageOf(ctx, group)
+	return c, err
+}
+
+// pageOf is PageOf, and whether the page is the group's own.
+func (s *Service) pageOf(ctx context.Context, group int64) (Page, bool, error) {
+	panel := func() (Page, bool, error) {
+		c, err := s.Page(ctx)
+		return c, false, err
+	}
 	if group == 0 {
-		return s.Page(ctx)
+		return panel()
 	}
 	raw, err := s.q.GetGroupPage(ctx, group)
 	if errors.Is(err, sql.ErrNoRows) || err == nil && !raw.Valid {
-		return s.Page(ctx)
+		return panel()
 	}
 	if err != nil {
-		return Default(), err
+		return Default(), false, err
 	}
 	c := Default()
 	if json.Unmarshal([]byte(raw.String), &c) != nil {
-		return s.Page(ctx)
+		return panel()
 	}
 	_ = Normalize(&c)
-	return c, nil
+	return c, true, nil
+}
+
+// Apps is what the admin changed of the page's apps, cleaned (NormalizeApps): what does not
+// fit is left out. A document that does not read at all gives none of it, with ErrUnreadable:
+// the page shows the built-in apps as they come rather than none at all.
+func (s *Service) Apps(ctx context.Context) (AppsConfig, error) {
+	raw, found, err := s.set.Raw(ctx, settings.KeySubApps)
+	if err != nil {
+		return AppsConfig{}, err
+	}
+	var c AppsConfig
+	if found {
+		if err = json.Unmarshal([]byte(raw), &c); err != nil {
+			c, err = AppsConfig{}, fmt.Errorf("%w: setting %s: %w", ErrUnreadable, settings.KeySubApps, err)
+		}
+	}
+	_ = NormalizeApps(&c)
+	return c, err
 }
 
 // PageAsset is an uploaded image without its bytes.
@@ -135,10 +175,12 @@ type DocItem struct {
 	Title    string `json:"title"`
 	Emoji    string `json:"emoji,omitempty"`
 	Platform string `json:"platform,omitempty"`
+	// I18n are its title in the page's languages, and on its own screen (DocView) its text too.
+	I18n map[string]DocText `json:"i18n,omitempty"`
 }
 
 // Public is what the page is told about itself: the document (its CSS goes into a style
-// of its own), the brand and links to the images.
+// of its own), the brand, links to the images and the catalogue of apps.
 type Public struct {
 	Config Page   `json:"config"`
 	Brand  string `json:"brand"`
@@ -147,14 +189,18 @@ type Public struct {
 	Logo       string    `json:"logo,omitempty"`
 	Background string    `json:"background,omitempty"`
 	Docs       []DocItem `json:"docs"`
-	css        string
+	// Catalog is the catalogue without the apps the page hides (catalogOf, which keeps for a
+	// group's page those the panel's shows): Config.Apps orders it and hides those.
+	Catalog AppCatalog `json:"catalog"`
+	css     string
 }
 
 // Public gathers the page's data, the page of group's clients (PageOf). brand and accent are
-// the panel's (settings.KeyBrand, KeyBrandAccent), and so are the images and instructions. An
-// image chosen but gone shows as the default: the letter, the theme.
+// the panel's (settings.KeyBrand, KeyBrandAccent), and so are the images, instructions and
+// apps. What the admin stored that does not read is left out and the rest shown: the data then
+// comes with ErrUnreadable, for the caller to log.
 func (s *Service) Public(ctx context.Context, group int64, brand, accent string) (Public, error) {
-	c, err := s.PageOf(ctx, group)
+	c, own, err := s.pageOf(ctx, group)
 	if err != nil {
 		return Public{}, err
 	}
@@ -162,41 +208,122 @@ func (s *Service) Public(ctx context.Context, group int64, brand, accent string)
 	if err != nil {
 		return Public{}, err
 	}
-	docs, err := s.q.ListPublishedSubDocs(ctx)
-	if err != nil {
-		return Public{}, err
+	docs, docsErr := s.publishedDocs(ctx)
+	if fatal(docsErr) {
+		return Public{}, docsErr
 	}
+	catalog, appsErr := s.catalogOf(ctx, c.Apps, own, assets)
+	if fatal(appsErr) {
+		return Public{}, appsErr
+	}
+	p := sentPage(c, brand)
+	p.Docs, p.Catalog = docs, catalog
+	p.linkImages(assets, accent)
+	published := make(map[int64]bool, len(docs))
+	for _, d := range docs {
+		published[d.ID] = true
+	}
+	// An app's instruction that is a draft, or deleted since, is no step the visitor can open.
+	p.Catalog.onlyDocs(published)
+	return p, errors.Join(docsErr, appsErr)
+}
+
+// Fallback is the page's data when its settings do not read (Public fails): the default page
+// with the built-in apps, which takes nothing from the database, rather than no apps at all.
+func Fallback(brand string) Public {
+	p := sentPage(Default(), brand)
+	p.Catalog = Presets()
+	return p
+}
+
+// sentPage is the data of page c as the page's source holds it, apart from its images,
+// instructions and apps: its CSS goes into a style of its own (Head), and a block turned off,
+// the admin's draft, is left out.
+func sentPage(c Page, brand string) Public {
 	p := Public{Config: c, Brand: brand, Docs: []DocItem{}, css: c.CSS}
 	p.Config.CSS = ""
-	// A block turned off is the admin's draft: it does not go into the page's source.
 	p.Config.Blocks = slices.DeleteFunc(slices.Clone(c.Blocks), func(b PageBlock) bool { return !b.On })
+	return p
+}
+
+// linkImages links the page's images among assets, and the brand's colour when the page takes
+// it. An image chosen but gone shows as the default: the letter, the theme.
+func (p *Public) linkImages(assets map[string]PageAsset, accent string) {
+	c := &p.Config
 	if c.Look.Accent == "brand" && ValidColor(accent) {
 		p.Accent = accent
 	}
 	if a, ok := assets[AssetLogo]; ok {
 		p.Logo = AssetPath(AssetLogo, a.Hash)
 	} else if c.Brand.Logo == "image" {
-		p.Config.Brand.Logo = "letter"
+		c.Brand.Logo = "letter"
 	}
 	if a, ok := assets[AssetBackground]; ok && c.Look.Background.Kind == "image" {
 		p.Background = AssetPath(AssetBackground, a.Hash)
 	} else if c.Look.Background.Kind == "image" {
-		p.Config.Look.Background.Kind = "theme"
+		c.Look.Background.Kind = "theme"
 	}
-	for _, d := range docs {
-		p.Docs = append(p.Docs, DocItem{ID: d.ID, Title: d.Title, Emoji: d.Emoji, Platform: d.Platform})
+}
+
+// publishedDocs are the instructions the page lists, with the titles of their translations.
+// One whose titles do not read is listed in its own words, with ErrUnreadable.
+func (s *Service) publishedDocs(ctx context.Context) ([]DocItem, error) {
+	rows, err := s.q.ListPublishedSubDocs(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return p, nil
+	out := make([]DocItem, 0, len(rows))
+	var unread []error
+	for _, d := range rows {
+		titles, err := UnmarshalDocI18n(d.TranslatedTitles)
+		if err != nil {
+			unread = append(unread, fmt.Errorf("instruction %d: %w", d.ID, err))
+		}
+		out = append(out, DocItem{ID: d.ID, Title: d.Title, Emoji: d.Emoji, Platform: d.Platform, I18n: titles})
+	}
+	return out, errors.Join(unread...)
+}
+
+// catalogOf is the catalogue the page of lists sends its visitors. The apps the page hides are
+// not in it, so an app only one group's page shows reaches that group's clients alone. A
+// group's own page (own) keeps those the panel's page shows as well: the Mini App shows the
+// panel's page, and its "Add" goes on in the subscriber's own page by the app's id (#open=,
+// web/src/sub/main.tsx).
+func (s *Service) catalogOf(ctx context.Context, lists PageApps, own bool, assets map[string]PageAsset) (AppCatalog, error) {
+	edits, unread := s.Apps(ctx)
+	if fatal(unread) {
+		return AppCatalog{}, unread
+	}
+	pages := []PageApps{lists}
+	if own {
+		panel, err := s.Page(ctx)
+		if err != nil {
+			return AppCatalog{}, err
+		}
+		pages = append(pages, panel.Apps)
+	}
+	c := edits.Catalog(AppIcons(assets))
+	c.keepShown(pages...)
+	return c, unread
 }
 
 // RemoteImages says whether the page may show images from other sites: an instruction or
-// a text block may hold https images. The admin's CSS may not (CleanCSS).
+// a text block, in any of its languages, may hold https images. The admin's CSS may not
+// (CleanCSS).
 func (p Public) RemoteImages() bool {
 	if len(p.Docs) > 0 {
 		return true
 	}
-	for _, b := range p.Config.Blocks {
-		if b.Type == TypeText && b.On && b.Text != "" {
+	return slices.ContainsFunc(p.Config.Blocks, func(b PageBlock) bool { return b.Type == TypeText && b.On && b.hasText() })
+}
+
+// hasText says whether b shows a text in some language: its own or a translation.
+func (b PageBlock) hasText() bool {
+	if b.Text != "" {
+		return true
+	}
+	for _, t := range b.I18n {
+		if t.Text != "" {
 			return true
 		}
 	}
@@ -252,16 +379,19 @@ type DocView struct {
 	Body string `json:"body"`
 }
 
-// Doc is a published instruction; ok is false when there is none by that id.
+// Doc is a published instruction; ok is false when there is none by that id. Translations
+// that do not read leave it in its own words, with ErrUnreadable.
 func (s *Service) Doc(ctx context.Context, id int64) (DocView, bool, error) {
 	d, err := s.q.GetPublishedSubDoc(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return DocView{}, false, nil
+	}
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return DocView{}, false, nil
-		}
 		return DocView{}, false, err
 	}
-	return DocView{DocItem: DocItem{ID: d.ID, Title: d.Title, Emoji: d.Emoji, Platform: d.Platform}, Body: d.Body}, true, nil
+	i18n, err := UnmarshalDocI18n(d.Translations)
+	item := DocItem{ID: d.ID, Title: d.Title, Emoji: d.Emoji, Platform: d.Platform, I18n: i18n}
+	return DocView{DocItem: item, Body: d.Body}, true, err
 }
 
 // Image is an uploaded image with its bytes; ok is false when there is none.

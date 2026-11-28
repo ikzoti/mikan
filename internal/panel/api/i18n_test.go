@@ -64,6 +64,8 @@ var codesByText = []string{
 	"template_proxy_tag", "template_balancer_tag", "template_rule_to", "template_core",
 	// checkCA, as a detail's Message.
 	"email_invalid", "eab_kid_invalid", "eab_hmac_invalid", "zerossl_email_required", "google_eab_required",
+	// subpage.AppLinkProblem: what is wrong with an own app's link.
+	"app_link_invalid", "app_link_scheme", "app_link_url",
 }
 
 // codesNotShown are sent but never shown by their text, so they need none.

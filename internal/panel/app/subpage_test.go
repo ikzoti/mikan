@@ -72,7 +72,7 @@ func TestSubPageDefaultIsUnchanged(t *testing.T) {
 	// The page gets the blocks that are on: the default's own, in its order.
 	def := subpage.Default()
 	def.Blocks = slices.DeleteFunc(def.Blocks, func(b subpage.PageBlock) bool { return !b.On })
-	if !reflect.DeepEqual(p.Config, def) || p.Brand != "VPN" || p.Accent != "" || p.Logo != "" || p.Background != "" || len(p.Docs) != 0 {
+	if !reflect.DeepEqual(p.Config, def) || p.Brand != "VPN" || p.Accent != "" || p.Logo != "" || p.Background != "" || len(p.Docs) != 0 || !reflect.DeepEqual(p.Catalog, subpage.Presets()) {
 		t.Fatalf("default page data: %+v", p)
 	}
 	for _, extra := range []string{"<style", "og:", "<link"} {

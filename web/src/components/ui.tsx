@@ -66,11 +66,12 @@ export function Avatar({ name, seed, size }: { name: string; seed: number; size?
   );
 }
 
-export function Segmented<T extends string>({ value, options, onChange, label, block, disabled }: { value: T; options: { value: T; label: string }[]; onChange: (v: T) => void; label: string; block?: boolean; disabled?: boolean }) {
+/** A choice of a few options; an option's lang is the language its label is in, when it is not the page's (a language's own name). */
+export function Segmented<T extends string>({ value, options, onChange, label, block, disabled }: { value: T; options: { value: T; label: string; lang?: string }[]; onChange: (v: T) => void; label: string; block?: boolean; disabled?: boolean }) {
   return (
     <div className={block ? "seg seg-block" : "seg"} role="group" aria-label={label}>
       {options.map((o) => (
-        <button key={o.value} type="button" aria-pressed={o.value === value} disabled={disabled} onClick={() => onChange(o.value)}>
+        <button key={o.value} type="button" aria-pressed={o.value === value} disabled={disabled} lang={o.lang} onClick={() => onChange(o.value)}>
           {o.label}
         </button>
       ))}

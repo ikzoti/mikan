@@ -1,23 +1,28 @@
 // The page as a subscriber sees it, from the draft being edited.
 import { Monitor, Moon, Smartphone, Sun } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useNodes, useSettings } from "../../../../api/hooks";
+import { useBlockedAppIds, useNodes, useSettings, useSubPageApps } from "../../../../api/hooks";
 import { Segmented } from "../../../../components/ui";
 import { t, useLocale } from "../../../../i18n";
-import type { Platform } from "../../../../sub/apps";
+import { NO_APPS, type Platform } from "../../../../sub/apps";
 import type { ShopData } from "../../../../sub/shop";
 import type { Info } from "../../../../sub/types";
 import { firstPlatform } from "../../../../sub/view";
 import { useSubDocs } from "../sub-docs";
 import { PagePreview, type PreviewDevice } from "../sub-page-preview";
-import { COLOR, imageURL, type Form, type View } from "./parts";
+import { COLOR, iconSourceOf, imageURL, SAMPLE_SUB_URL, type Form, type LangProps, type View } from "./parts";
+import { TextLangSwitch } from "./text-lang";
 
 const SAMPLE_GB = 1024 ** 3;
 
-export function Preview({ v, draft, platform: editing, bare }: { v: View; draft: Form; platform?: Platform; bare?: boolean }) {
+type Props = { v: View; draft: Form; platform?: Platform; bare?: boolean } & LangProps;
+
+export function Preview({ v, draft, platform: editing, bare, lang, setLang }: Props) {
   const settings = useSettings();
   const nodes = useNodes();
   const docs = useSubDocs();
+  const apps = useSubPageApps();
+  const blocked = useBlockedAppIds();
   const locale = useLocale();
   const [device, setDevice] = useState<PreviewDevice>("phone");
   const [scheme, setScheme] = useState<"light" | "dark">(() => (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
@@ -32,6 +37,8 @@ export function Preview({ v, draft, platform: editing, bare }: { v: View; draft:
     return {
       name: t("settings.page.sample.name"),
       brand,
+      // The apps turned away in the subscription's settings, which the page does not offer.
+      blocked_apps: blocked,
       support_url: s?.support_url || "https://t.me/",
       state: "active",
       used_up: 1.6 * SAMPLE_GB,
@@ -51,7 +58,7 @@ export function Preview({ v, draft, platform: editing, bare }: { v: View; draft:
     };
     // The sample texts are translated: they change with the language.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [brand, s, nodes.data, locale]);
+  }, [brand, s, nodes.data, blocked, locale]);
   const shop = useMemo<ShopData>(
     () => ({
       allow_new: true,
@@ -66,7 +73,7 @@ export function Preview({ v, draft, platform: editing, bare }: { v: View; draft:
     [locale],
   );
   const accent = look.accent === "brand" && COLOR.test(draft.brand_accent.trim()) ? draft.brand_accent.trim().toUpperCase() : undefined;
-  const published = (docs.data ?? []).filter((d) => d.published).map((d) => ({ id: d.id, title: d.title, emoji: d.emoji, platform: d.platform, body: d.body }));
+  const published = (docs.data ?? []).filter((d) => d.published).map((d) => ({ id: d.id, title: d.title, emoji: d.emoji, platform: d.platform, body: d.body, i18n: d.i18n }));
   const platform = editing ?? firstPlatform(draft.config, device === "phone" ? "ios" : "windows");
   const shownScheme = look.mode === "system" ? scheme : look.mode;
   return (
@@ -101,24 +108,30 @@ export function Preview({ v, draft, platform: editing, bare }: { v: View; draft:
               { value: "tg", label: "Mini App" },
             ]}
           />
+          <TextLangSwitch value={lang} onChange={setLang} />
         </div>
       </div>
       <PagePreview
         config={draft.config}
+        lang={lang}
         brand={brand}
         accent={accent}
         logo={imageURL(v.logo)}
         background={look.background.kind === "image" ? imageURL(v.background) : undefined}
         docs={published}
+        catalog={apps.data?.catalog ?? NO_APPS}
+        iconSrc={iconSourceOf(apps.data?.icons)}
         info={info}
-        subURL="https://vpn.example.com/sub/k3J9fQ2mXa7d"
+        subURL={SAMPLE_SUB_URL}
         device={device}
         scheme={shownScheme}
         tg={tg}
         platform={platform}
         shop={shop}
       />
-      <p className="text-xs text-[var(--ink-500)]">{t("settings.page.previewNote")}</p>
+      <p className="text-xs text-[var(--ink-500)]">
+        {t("settings.page.previewNote")} {t("settings.page.previewLangNote")}
+      </p>
     </section>
   );
 }

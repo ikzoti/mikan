@@ -10,7 +10,7 @@ import (
 // who is asking, and what to say to the ones the admin does not want.
 type Known struct {
 	// ID is what the admin's list keeps: lowercase letters and digits, never renamed. The
-	// subscription page's catalog (web/src/sub/apps.ts) names its apps by the same ids.
+	// subscription page's built-in apps (internal/panel/subpage) are named by the same ids.
 	ID     string
 	Name   string
 	Family Family

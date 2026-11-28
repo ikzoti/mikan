@@ -52,9 +52,10 @@ type PageBackground struct {
 
 // PageBrand is the page's head: the logo and a line under the name (the name is the brand).
 type PageBrand struct {
-	Logo     string `json:"logo" enum:"letter,image,emoji,none" doc:"letter — первая буква бренда, image — загруженный логотип, emoji, none — без значка"`
-	Emoji    string `json:"emoji" maxLength:"32"`
-	Subtitle string `json:"subtitle" maxLength:"80" doc:"Строка под названием; пусто — нет"`
+	Logo     string               `json:"logo" enum:"letter,image,emoji,none" doc:"letter — первая буква бренда, image — загруженный логотип, emoji, none — без значка"`
+	Emoji    string               `json:"emoji" maxLength:"32"`
+	Subtitle string               `json:"subtitle" maxLength:"80" doc:"Строка под названием; пусто — нет"`
+	I18n     map[string]BrandText `json:"i18n,omitempty" doc:"Строка под названием на языках страницы (ru, en): посетитель видит свой язык, а где перевода нет, subtitle"`
 }
 
 // PageBlock is a section of the page. The built-in ones appear once each and their id is
@@ -66,17 +67,20 @@ type PageBlock struct {
 	Title string     `json:"title" maxLength:"60" doc:"Свой заголовок (у кнопок — текст кнопки); пусто — обычный"`
 	Text  string     `json:"text,omitempty" maxLength:"8000" doc:"Блок text: Markdown"`
 	Links []PageLink `json:"links,omitempty" maxItems:"8" doc:"Блок links: кнопки-ссылки"`
+	// I18n are the title and the text in the page's languages; the links have their own.
+	I18n map[string]BlockText `json:"i18n,omitempty" doc:"Заголовок и текст блока text на языках страницы (ru, en): посетитель видит свой язык, а где перевода нет, title и text"`
 }
 
 // PageLink is a button of a links block.
 type PageLink struct {
-	Label string `json:"label" maxLength:"40"`
-	URL   string `json:"url" maxLength:"500" doc:"https://, http:// или tg://"`
-	Emoji string `json:"emoji,omitempty" maxLength:"32"`
+	Label string               `json:"label" maxLength:"40"`
+	URL   string               `json:"url" maxLength:"500" doc:"https://, http:// или tg://"`
+	Emoji string               `json:"emoji,omitempty" maxLength:"32"`
+	I18n  map[string]LabelText `json:"i18n,omitempty" doc:"Текст кнопки на языках страницы (ru, en); где перевода нет, label"`
 }
 
-// PageApps is the "Connect a device" block: which apps of the catalogue (web/src/sub/apps.ts)
-// show for each platform and in what order.
+// PageApps is the "Connect a device" block: which apps of the catalogue (AppCatalog, every
+// page's) show for each platform and in what order.
 type PageApps struct {
 	Platform string      `json:"platform" enum:"auto,ios,android,windows,macos,linux" doc:"Вкладка, открытая сначала; auto — по устройству посетителя"`
 	IOS      PageAppList `json:"ios"`
@@ -87,13 +91,18 @@ type PageApps struct {
 	QR       bool        `json:"qr" doc:"Кнопка QR-кода в блоке ссылки"`
 }
 
-// PageAppList orders a platform's apps: those named in Order first, in that order, the rest of
-// the catalogue after them; Hidden ones are left out. An app added to the catalogue later
-// shows up without the admin doing anything.
+// PageAppList orders a platform's apps by their ids: those in Order first, in that order, the
+// rest of the catalogue after them; Hidden ones are left out. An app added to the catalogue
+// later shows up without the admin doing anything.
 type PageAppList struct {
-	Order  []string `json:"order" maxItems:"20"`
-	Hidden []string `json:"hidden" maxItems:"20"`
+	Order  []string `json:"order" maxItems:"32" doc:"id приложений каталога (happ, koala…), которые идут первыми, в этом порядке; остальные идут за ними"`
+	Hidden []string `json:"hidden" maxItems:"32" doc:"id скрытых приложений"`
 }
+
+// MaxAppList is how many ids a list of PageAppList holds: every app a platform may have, its
+// built-in ones and MaxOwnApps of the admin's, with room for ids of apps gone since. The tags of
+// PageAppList say the same (TestAppListLimit).
+const MaxAppList = 32
 
 // PageOG is the link preview messengers build from the page.
 type PageOG struct {
@@ -141,14 +150,15 @@ func Default() Page {
 	for _, b := range builtins {
 		c.Blocks = append(c.Blocks, PageBlock{ID: b.typ, Type: b.typ, On: b.on})
 	}
-	c.Apps.lists(func(l *PageAppList) { l.Order, l.Hidden = []string{}, []string{} })
+	for _, l := range c.Apps.lists() {
+		l.Order, l.Hidden = []string{}, []string{}
+	}
 	return c
 }
 
-func (a *PageApps) lists(f func(*PageAppList)) {
-	for _, l := range []*PageAppList{&a.IOS, &a.Android, &a.Windows, &a.MacOS, &a.Linux} {
-		f(l)
-	}
+// lists are the platforms' lists in the order of Platforms.
+func (a *PageApps) lists() []*PageAppList {
+	return []*PageAppList{&a.IOS, &a.Android, &a.Windows, &a.MacOS, &a.Linux}
 }
 
 // Problem is what is wrong with a field of a Page: Field is its path in the document
@@ -242,16 +252,19 @@ func Normalize(c *Page) []Problem {
 		b.Logo = d.Brand.Logo
 	}
 	b.Subtitle = strings.TrimSpace(b.Subtitle)
-	if !oneLine(b.Subtitle, 80) {
+	if !oneLine(b.Subtitle, maxSubtitle) {
 		bad("brand.subtitle", "one_line", nil)
 		b.Subtitle = ""
 	}
+	var texts []Problem
+	b.I18n, texts = normalizeI18n("brand.i18n", b.I18n, cleanBrandText)
+	out = append(out, texts...)
 
 	out = append(out, normalizeBlocks(c)...)
 
 	a := &c.Apps
 	enum("apps.platform", &a.Platform, d.Apps.Platform, append([]string{"auto"}, Platforms...)...)
-	for i, l := range []*PageAppList{&a.IOS, &a.Android, &a.Windows, &a.MacOS, &a.Linux} {
+	for i, l := range a.lists() {
 		for _, part := range []struct {
 			name string
 			list *[]string
@@ -260,17 +273,18 @@ func Normalize(c *Page) []Problem {
 			clean := []string{}
 			for _, n := range *part.list {
 				n = strings.TrimSpace(n)
-				if !appName(n) {
+				id, ok := appID(n)
+				if !ok {
 					bad(field, "app_invalid", n)
 					continue
 				}
-				if !slices.Contains(clean, n) {
-					clean = append(clean, n)
+				if !slices.Contains(clean, id) {
+					clean = append(clean, id)
 				}
 			}
-			if len(clean) > 20 {
-				bad(field, "too_many", 20)
-				clean = clean[:20]
+			if len(clean) > MaxAppList {
+				bad(field, "too_many", MaxAppList)
+				clean = clean[:MaxAppList]
 			}
 			*part.list = clean
 		}
@@ -334,8 +348,9 @@ func normalizeBlocks(c *Page) []Problem {
 			continue
 		}
 		seen[b.ID] = true
+		at := "blocks[" + strconv.Itoa(i) + "]."
 		b.Title = strings.TrimSpace(b.Title)
-		if !oneLine(b.Title, 60) {
+		if !oneLine(b.Title, maxBlockTitle) {
 			bad(i, "title", "one_line", nil)
 			b.Title = ""
 		}
@@ -346,46 +361,18 @@ func normalizeBlocks(c *Page) []Problem {
 			b.Links = nil
 		}
 		if b.Type == TypeText {
-			b.Text = strings.TrimSpace(strings.ReplaceAll(b.Text, "\r\n", "\n"))
-			if utf8.RuneCountInString(b.Text) > 8000 {
-				bad(i, "text", "too_long", 8000)
-				b.Text = ""
-			}
-			if HasControl(b.Text) {
-				bad(i, "text", "value_invalid", nil)
-				b.Text = ""
-			}
-			if u := FirstBadImage(b.Text); u != "" {
-				bad(i, "text", "image_https", u)
-			}
+			out = append(out, cleanMarkdown(at+"text", &b.Text, maxBlockText)...)
 		}
+		var texts []Problem
+		b.I18n, texts = normalizeI18n(at+"i18n", b.I18n, cleanBlockText(b.Type))
+		out = append(out, texts...)
 		if b.Type == TypeLinks {
 			if len(b.Links) > 8 {
 				bad(i, "links", "too_many", 8)
 				b.Links = b.Links[:8]
 			}
-			links := []PageLink{}
-			for j, l := range b.Links {
-				at := "links[" + strconv.Itoa(j) + "]."
-				l.Label, l.URL, l.Emoji = strings.TrimSpace(l.Label), strings.TrimSpace(l.URL), strings.TrimSpace(l.Emoji)
-				ok := true
-				if l.Label == "" || !oneLine(l.Label, 40) {
-					bad(i, at+"label", "label_required", nil)
-					ok = false
-				}
-				if !textutil.ValidLink(l.URL, pageLinks) {
-					bad(i, at+"url", "link_invalid", nil)
-					ok = false
-				}
-				if l.Emoji != "" && !shortMark(l.Emoji) {
-					bad(i, at+"emoji", "emoji_invalid", nil)
-					ok = false
-				}
-				if ok {
-					links = append(links, l)
-				}
-			}
-			b.Links = links
+			b.Links, texts = normalizeLinks(at, b.Links)
+			out = append(out, texts...)
 		}
 		blocks = append(blocks, b)
 	}
@@ -402,6 +389,41 @@ func normalizeBlocks(c *Page) []Problem {
 	}
 	c.Blocks = blocks
 	return out
+}
+
+// normalizeLinks cleans list, the buttons of a links block whose fields start with at
+// (blocks[i].): a button the page cannot show goes, and a translation of its text that breaks
+// the text's rules is left out.
+func normalizeLinks(at string, list []PageLink) ([]PageLink, []Problem) {
+	var out []Problem
+	links := []PageLink{}
+	for j, l := range list {
+		field := at + "links[" + strconv.Itoa(j) + "]."
+		bad := func(name, code string, value any) {
+			out = append(out, Problem{Field: field + name, Code: code, Value: value})
+		}
+		l.Label, l.URL, l.Emoji = strings.TrimSpace(l.Label), strings.TrimSpace(l.URL), strings.TrimSpace(l.Emoji)
+		ok := true
+		if l.Label == "" || !oneLine(l.Label, maxLabel) {
+			bad("label", "label_required", nil)
+			ok = false
+		}
+		if !textutil.ValidLink(l.URL, pageLinks) {
+			bad("url", "link_invalid", nil)
+			ok = false
+		}
+		if l.Emoji != "" && !shortMark(l.Emoji) {
+			bad("emoji", "emoji_invalid", nil)
+			ok = false
+		}
+		var texts []Problem
+		l.I18n, texts = normalizeI18n(field+"i18n", l.I18n, cleanLabelText)
+		out = append(out, texts...)
+		if ok {
+			links = append(links, l)
+		}
+	}
+	return links, out
 }
 
 // pageLinks are the links a button of the page may open: http(s) or a Telegram one.
@@ -422,9 +444,10 @@ func FirstBadImage(md string) string {
 	return ""
 }
 
-// oneLine: at most n letters, no line breaks or other control characters.
+// oneLine: at most n letters, no line breaks or other control characters (lineProblem).
 func oneLine(s string, n int) bool {
-	return utf8.RuneCountInString(s) <= n && !strings.ContainsFunc(s, unicode.IsControl)
+	code, _ := lineProblem(s, n)
+	return code == ""
 }
 
 // shortMark is an emoji, or a few letters in its place: up to 16 code points (the longest
@@ -435,14 +458,24 @@ func shortMark(s string) bool {
 	})
 }
 
-// appName is a name of the app catalogue: letters, digits, spaces and a few signs.
-func appName(s string) bool {
-	if s == "" || utf8.RuneCountInString(s) > 40 {
-		return false
+// appIDRe is an id of the app catalogue: lowercase Latin letters, digits and hyphens.
+var appIDRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+
+// oldAppNames are the names the page's lists held before they held ids (#278), the built-in
+// apps' names on the page then: a page saved before keeps its order.
+var oldAppNames = map[string]string{
+	"Mikan": "mikan", "Kabosu": "kabosu", "Koala Clash": "koala", "ClashFest": "clashfest", "SlothClash": "slothclash",
+	"Clash Verge Rev": "verge", "Happ": "happ", "INCY": "incy", "v2RayTun": "v2raytun", "Streisand": "streisand", "Hiddify": "hiddify",
+}
+
+// appID is the id s stands for in a list of the page's apps: an id as it is, an old name as
+// its app's id; false for anything else. An id is kept whether or not the catalogue has it
+// now, as a name was.
+func appID(s string) (string, bool) {
+	if id, ok := oldAppNames[s]; ok {
+		return id, true
 	}
-	return !strings.ContainsFunc(s, func(r rune) bool {
-		return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == ' ' || r == '.' || r == '-' || r == '+' || r == '_')
-	})
+	return s, appIDRe.MatchString(s)
 }
 
 var (
@@ -484,6 +517,8 @@ type Doc struct {
 	Emoji    string
 	Body     string
 	Platform string
+	// I18n are its title and text in the page's languages.
+	I18n map[string]DocText
 }
 
 // MaxDocs is how many instructions the page may have.
@@ -496,8 +531,7 @@ func NormalizeDoc(d *Doc) []Problem {
 		out = append(out, Problem{Field: field, Code: code, Value: value})
 	}
 	d.Title, d.Emoji, d.Platform = strings.TrimSpace(d.Title), strings.TrimSpace(d.Emoji), strings.TrimSpace(d.Platform)
-	d.Body = strings.TrimSpace(strings.ReplaceAll(d.Body, "\r\n", "\n"))
-	if d.Title == "" || !oneLine(d.Title, 80) {
+	if d.Title == "" || !oneLine(d.Title, maxDocTitle) {
 		bad("title", "title_required", nil)
 	}
 	if d.Emoji != "" && !shortMark(d.Emoji) {
@@ -506,14 +540,8 @@ func NormalizeDoc(d *Doc) []Problem {
 	if d.Platform != "" && !slices.Contains(Platforms, d.Platform) {
 		bad("platform", "value_invalid", d.Platform)
 	}
-	if utf8.RuneCountInString(d.Body) > 20000 {
-		bad("body", "too_long", 20000)
-	}
-	if HasControl(d.Body) {
-		bad("body", "value_invalid", nil)
-	}
-	if u := FirstBadImage(d.Body); u != "" {
-		bad("body", "image_https", u)
-	}
-	return out
+	out = append(out, cleanMarkdown("body", &d.Body, maxDocBody)...)
+	var texts []Problem
+	d.I18n, texts = normalizeI18n("i18n", d.I18n, cleanDocText)
+	return append(out, texts...)
 }
