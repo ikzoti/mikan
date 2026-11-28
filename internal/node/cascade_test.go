@@ -100,7 +100,7 @@ func TestCascadeConfig(t *testing.T) {
 
 func TestScopedNetworkKeepsCheckedDestination(t *testing.T) {
 	st := cascadeState(t)
-	st.Slots = []nodeapi.Slot{{Name: "s1", UUID: "a83de115-cfed-416d-9f72-b0b6463a7c0f"}}
+	st.Slots = []nodeapi.Slot{{Name: "s1", UUID: "a83de115-cfed-416d-9f72-b0b6463a7c0f"}, {Name: "s2", UUID: "49fdcd9f-61ed-49b4-b347-69e0ea4140a2"}}
 	st.Filters = &nodeapi.Filters{Egress: nodeapi.Egress{
 		Domains: []string{"deny.example"},
 		Scoped:  []nodeapi.ScopedEgress{{Kind: "network", Value: "203.0.113.0/24", Scope: "only", Slots: []string{"s1"}}},
@@ -128,14 +128,24 @@ func TestScopedNetworkKeepsCheckedDestination(t *testing.T) {
 		return ""
 	}
 	addr := netip.MustParseAddrPort("198.51.100.7:443")
-	installDestinationChecks(cfg.Rules, false)
+	installDestinationChecks(cfg.Rules, nil)
 	unfiltered := &C.Metadata{NetWork: C.TCP, InName: "in-anytls", Host: "safe.example", DstPort: 443}
 	if target := match(t, unfiltered, addr.Addr()); target != "NODE-3" || unfiltered.Host != "safe.example" {
 		t.Fatalf("ordinary relay route matched %s with metadata %+v", target, unfiltered)
 	}
-	installDestinationChecks(cfg.Rules, hasScopedNetworks(st.Filters))
+	installDestinationChecks(cfg.Rules, scopedSubjects(st, "network"))
 	for _, network := range []C.NetWork{C.TCP, C.UDP} {
 		t.Run(network.String(), func(t *testing.T) {
+			// A client no rule names keeps the exit's DNS, a name the entry cannot resolve too.
+			for _, route := range []struct{ host, target string }{{"only-at-exit.example", "NODE-3"}, {"openai.com", "WARP"}} {
+				other := &C.Metadata{NetWork: network, InName: "in-anytls", InUser: "s2", Host: route.host, DstPort: 443}
+				if route.target == "WARP" {
+					other.InName = ""
+				}
+				if target := match(t, other, netip.Addr{}); target != route.target || other.Host != route.host {
+					t.Fatalf("a client outside the rule: wanted %s, matched %s with metadata %+v", route.target, target, other)
+				}
+			}
 			entry := &C.Metadata{NetWork: network, InName: "in-anytls", InUser: "s1", Host: "safe.example", DstPort: 443}
 			if target := match(t, entry.Clone(), mustAddr("203.0.113.7")); target != "REJECT" {
 				t.Fatalf("scoped network matched %s", target)
@@ -185,27 +195,56 @@ func (udpSource) LocalAddr() net.Addr {
 	return net.UDPAddrFromAddrPort(netip.MustParseAddrPort("192.0.2.5:1001"))
 }
 
-func TestRelayUDPRouteIsBoundToDestination(t *testing.T) {
+// A UDP session per destination for the clients scoped rules decide for, and one per
+// socket (full-cone NAT) for everyone else.
+func TestScopedUDPSessionsPerDestination(t *testing.T) {
 	inner := &udpKeyRecorder{}
 	tun := &Tunnel{inner: inner}
-	m := &C.Metadata{InName: nodeapi.RelayListener, Host: "udp.example", DstPort: 443}
-	tun.HandleUDPPacket(udpSource{}, m)
-	m.DstPort = 8443
-	tun.HandleUDPPacket(udpSource{}, m)
-	if inner.keys[0] != inner.keys[1] {
-		t.Fatal("without scoped filters, destinations on the same UDP socket should share a session")
+	keys := func(m *C.Metadata, destinations ...string) []string {
+		t.Helper()
+		inner.keys = nil
+		for _, host := range destinations {
+			m.Host = host
+			if m.InName == nodeapi.RelayListener {
+				tun.HandleUDPPacket(udpSource{}, m)
+			} else {
+				tun.forwardUDP(udpSource{}, m)
+			}
+		}
+		return inner.keys
 	}
-	inner.keys = nil
-	tun.scopedUDP.Store(true)
-	m.DstPort = 443
-	tun.HandleUDPPacket(udpSource{}, m)
-	tun.HandleUDPPacket(udpSource{}, m)
-	m.DstPort = 8443
-	tun.HandleUDPPacket(udpSource{}, m)
-	m.Host = "other.example"
-	tun.HandleUDPPacket(udpSource{}, m)
-	if k := inner.keys; len(k) != 4 || k[0] != k[1] || k[1] == k[2] || k[2] == k[3] {
-		t.Fatalf("UDP session keys = %q", k)
+	shared := func(k []string) bool { return k[0] == k[len(k)-1] }
+	client := func(user string) *C.Metadata { return &C.Metadata{InName: "in-anytls", InUser: user, DstPort: 443} }
+	relay := &C.Metadata{InName: nodeapi.RelayListener, InUser: "relay-2", DstPort: 443}
+
+	if !shared(keys(client("s1"), "a.example", "b.example")) {
+		t.Fatal("without scoped filters, destinations on one UDP socket share a session")
+	}
+	st := nodeapi.DesiredState{
+		Slots: []nodeapi.Slot{{Name: "s1", UUID: "a83de115-cfed-416d-9f72-b0b6463a7c0f"}, {Name: "s2", UUID: "49fdcd9f-61ed-49b4-b347-69e0ea4140a2"}},
+		Filters: &nodeapi.Filters{Egress: nodeapi.Egress{Scoped: []nodeapi.ScopedEgress{
+			{Kind: "domain", Value: "blocked.example", Scope: "only", Slots: []string{"s1"}},
+		}}},
+	}
+	tun.udpSubjects.Store(scopedSubjects(st))
+	if k := keys(client("s1"), "a.example", "a.example", "b.example"); k[0] != k[1] || k[1] == k[2] {
+		t.Fatalf("the rule's client: UDP session keys = %q", k)
+	}
+	if !shared(keys(client("s2"), "a.example", "b.example")) || !shared(keys(relay, "a.example", "b.example")) {
+		t.Fatal("a client outside the rule and the relay keep one session per socket")
+	}
+	// An except rule decides for everyone it does not exempt, shared-key clients too.
+	st.Filters.Egress.Scoped[0].Scope = "except"
+	tun.udpSubjects.Store(scopedSubjects(st))
+	for user, perDestination := range map[string]bool{"s1": false, "s2": true, "": true} {
+		if shared(keys(client(user), "a.example", "b.example")) == perDestination {
+			t.Fatalf("except rule, client %q: per destination wanted %v", user, perDestination)
+		}
+	}
+	// A personal exception blocks nothing and changes no session.
+	st.Filters.Egress.Scoped[0].Scope = "allow"
+	if scopedSubjects(st) != nil {
+		t.Fatal("an allow rule made UDP sessions per destination")
 	}
 }
 

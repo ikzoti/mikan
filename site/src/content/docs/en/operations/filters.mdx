@@ -18,7 +18,9 @@ Under **Rules by audience**, choose who a rule blocks for a domain, network or p
 
 The first node in a cascade evaluates rules by audience. On protocols with a shared key, the node cannot distinguish clients. Only selected has no effect there, and Everyone except selected blocks matching traffic for the shared connection. Update every node in a cascade before enabling rules by audience.
 
-With a network rule by audience, the node resolves destinations before choosing the outbound. WARP and each hop of a cascade use the checked address. An exit can still read the domain name from the traffic for domain rules.
+For the clients a network rule by audience applies to, the node resolves destinations before choosing the outbound. WARP and each hop of a cascade use the checked address, and a site the node cannot resolve is refused. Other clients keep the exit's DNS. An exit can still read the domain name from the traffic for domain rules.
+
+The clients a rule by audience applies to get a separate UDP session for each destination, so their NAT is symmetric: a game or a call that needs full-cone NAT may not connect for them. Other clients are not affected.
 
 ## Incoming connections
 

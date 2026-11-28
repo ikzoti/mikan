@@ -141,12 +141,12 @@ type Engine struct {
 // independently so a changed audience cannot close existing WARP connections.
 func rulesKey(st nodeapi.DesiredState, allowPrivate bool) string {
 	rules, sub := routingRules(st, allowPrivate)
+	// The clients pinned or given UDP sessions per destination are those the scoped
+	// rules name, so the rules cover them too.
 	raw, _ := json.Marshal(struct {
-		Rules      []string
-		Sub        map[string][]string
-		PinNetwork bool
-		ScopedUDP  bool
-	}{rules, sub, hasScopedNetworks(st.Filters), hasScopedRules(st.Filters)})
+		Rules []string
+		Sub   map[string][]string
+	}{rules, sub})
 	return string(raw)
 }
 
@@ -420,14 +420,16 @@ func (e *Engine) apply(st nodeapi.DesiredState) (nodeapi.ApplyResult, error) {
 	}
 
 	if key := rulesKey(st, e.allowPrivate); key != e.routes {
-		installDestinationChecks(cfg.Rules, hasScopedNetworks(st.Filters))
-		scoped := hasScopedRules(st.Filters)
-		if scoped {
-			e.tun.scopedUDP.Store(true)
+		installDestinationChecks(cfg.Rules, scopedSubjects(st, "network"))
+		// A client the new rules decide for gets UDP sessions per destination before the
+		// rules apply, and keeps them until no rule does.
+		udp := scopedSubjects(st)
+		if udp != nil {
+			e.tun.udpSubjects.Store(udp)
 		}
 		tunnel.UpdateRules(cfg.Rules, cfg.SubRules, cfg.RuleProviders)
-		if !scoped {
-			e.tun.scopedUDP.Store(false)
+		if udp == nil {
+			e.tun.udpSubjects.Store(nil)
 		}
 		e.routes = key
 	}

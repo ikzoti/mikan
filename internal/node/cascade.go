@@ -76,19 +76,10 @@ func exitRules(st nodeapi.DesiredState) []string {
 	return r
 }
 
-func hasScopedNetworks(f *nodeapi.Filters) bool {
-	if f != nil {
-		for _, r := range f.Egress.Scoped {
-			if r.Kind == "network" && (r.Scope == "only" || r.Scope == "except") && egressTarget(r.Kind, r.Value) != "" {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func installDestinationChecks(rules []C.Rule, pin bool) {
-	if !pin {
+// installDestinationChecks pins the destinations of the clients a scoped network rule
+// decides for (pin); without such a rule it leaves the rules as they are.
+func installDestinationChecks(rules []C.Rule, pin *subjects) {
+	if pin == nil {
 		return
 	}
 	// Preserve literal destinations from the relay before checking the exit's rules.
@@ -96,7 +87,7 @@ func installDestinationChecks(rules []C.Rule, pin bool) {
 	rules[0] = relayAddressRule{rules[0]}
 	for i, r := range rules {
 		if r.Adapter() == "DIRECT" || r.Adapter() == warpProxy || strings.HasPrefix(r.Adapter(), "NODE-") {
-			rules[i] = checkedAddressRule{r}
+			rules[i] = checkedAddressRule{r, pin}
 		}
 	}
 }
@@ -116,11 +107,16 @@ func (r relayAddressRule) Match(m *C.Metadata, helper C.RuleMatchHelper) (bool, 
 	return r.Rule.Match(m, helper)
 }
 
-type checkedAddressRule struct{ C.Rule }
+type checkedAddressRule struct {
+	C.Rule
+	pin *subjects
+}
 
 func (r checkedAddressRule) Match(m *C.Metadata, helper C.RuleMatchHelper) (bool, string) {
 	matched, target := r.Rule.Match(m, helper)
-	if !matched || m.Host == "" {
+	// Everyone else keeps the exit's own DNS: resolving at the entry would give a
+	// cascade the entry's answers, and refuse what only the exit can resolve.
+	if !matched || m.Host == "" || !r.pin.has(m) {
 		return matched, target
 	}
 	// CIDR rules have already run. Send the checked IP so DNS at a VLESS
