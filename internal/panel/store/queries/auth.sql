@@ -1,6 +1,9 @@
 -- name: GetSetting :one
 SELECT value FROM settings WHERE key = $1;
 
+-- name: LockSetting :one
+SELECT value FROM settings WHERE key = $1 FOR UPDATE;
+
 -- name: SetSetting :exec
 INSERT INTO settings (key, value) VALUES ($1, $2)
 ON CONFLICT (key) DO UPDATE SET value = excluded.value;

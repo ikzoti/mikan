@@ -156,6 +156,17 @@ func (q *Queries) LockFolder(ctx context.Context, id int64) (int64, error) {
 	return id_2, err
 }
 
+const lockFolderForDelete = `-- name: LockFolderForDelete :one
+SELECT id FROM user_folders WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) LockFolderForDelete(ctx context.Context, id int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, lockFolderForDelete, id)
+	var id_2 int64
+	err := row.Scan(&id_2)
+	return id_2, err
+}
+
 const lockFolderUsers = `-- name: LockFolderUsers :many
 SELECT id FROM users WHERE folder_id = $1 ORDER BY id FOR NO KEY UPDATE
 `

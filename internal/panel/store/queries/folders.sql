@@ -16,6 +16,9 @@ UPDATE user_folders SET name = $1, color = $2, emoji = $3 WHERE id = $4 RETURNIN
 -- name: SetFolderSort :exec
 UPDATE user_folders SET sort = $1 WHERE id = $2;
 
+-- name: LockFolderForDelete :one
+SELECT id FROM user_folders WHERE id = $1 FOR UPDATE;
+
 -- name: LockFolderUsers :many
 -- The folder's users, locked in id order like every other writer of users rows: the
 -- foreign key would otherwise lock them in index order and deadlock with traffic batches.

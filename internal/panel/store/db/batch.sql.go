@@ -566,6 +566,27 @@ func (q *Queries) LockTrafficPools(ctx context.Context, ids []int64) ([]int64, e
 	return items, nil
 }
 
+const lockFilterUsers = `-- name: LockFilterUsers :many
+SELECT id FROM users WHERE id = ANY($1::bigint[]) ORDER BY id FOR KEY SHARE
+`
+
+func (q *Queries) LockFilterUsers(ctx context.Context, ids []int64) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, lockFilterUsers, pq.Array(ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	return items, rows.Err()
+}
+
 const lockUserRows = `-- name: LockUserRows :many
 SELECT id, name, contact, note, tags, status, tariff_id, traffic_limit, device_limit, reset_strategy, period_days, period_start, used_up, used_down, total_up, total_down, expires_at, inbounds, sub_token, slot_id, online_at, created_at, updated_at, billing_day, source, hidden, folder_id, speed_limit, device_mode, extra_devices, extra_devices_until FROM users WHERE id = ANY($1::bigint[]) ORDER BY id FOR NO KEY UPDATE
 `

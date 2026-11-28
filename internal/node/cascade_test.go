@@ -93,8 +93,8 @@ func TestCascadeConfig(t *testing.T) {
 	if _, _, err := buildConfig(bad, proto.Cert{}, false, ""); err == nil {
 		t.Fatal("an exit named like a built-in policy was accepted")
 	}
-	if routesKey(cascadeState(t), false) == routesKey(warpState(), false) {
-		t.Fatal("routesKey must follow the exits")
+	if outboundKey(cascadeState(t)) == outboundKey(warpState()) {
+		t.Fatal("outboundKey must follow the exits")
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -26,7 +27,8 @@ func TestEgressRules(t *testing.T) {
 		}},
 		Warp: &nodeapi.Warp{Domains: []string{"openai.com"}},
 	}
-	got := strings.Join(rules(st, true), "\n")
+	routeRules, _ := routingRules(st, true)
+	got := strings.Join(routeRules, "\n")
 	want := strings.Join([]string{
 		"DST-PORT,25,REJECT",
 		"DST-PORT,465,REJECT",
@@ -45,10 +47,11 @@ func TestEgressRules(t *testing.T) {
 		t.Fatalf("rules:\n%s\nwant:\n%s", got, want)
 	}
 	// The rules are part of what swaps the tunnel's routes.
-	if routesKey(st, true) == routesKey(nodeapi.DesiredState{Warp: st.Warp}, true) {
+	if rulesKey(st, true) == rulesKey(nodeapi.DesiredState{Warp: st.Warp}, true) {
 		t.Fatal("the egress filter does not change the routes key")
 	}
-	if strings.Join(rules(nodeapi.DesiredState{}, true), "\n") != "DST-PORT,25,REJECT\nMATCH,DIRECT" {
+	emptyRules, _ := routingRules(nodeapi.DesiredState{}, true)
+	if strings.Join(emptyRules, "\n") != "DST-PORT,25,REJECT\nMATCH,DIRECT" {
 		t.Fatal("no filters, yet rules changed")
 	}
 }
@@ -197,5 +200,82 @@ func TestIngressInTunnel(t *testing.T) {
 	}
 	if _, err := d.Write([]byte("x")); err == nil {
 		t.Fatal("the denied connection is still open")
+	}
+}
+
+func TestScopedEgressRules(t *testing.T) {
+	st := cascadeState(t)
+	st.Slots = []nodeapi.Slot{
+		{Name: "s1", UUID: "A83DE115-CFED-416D-9F72-B0B6463A7C0F"},
+		{Name: "s2", UUID: "49fdcd9f-61ed-49b4-b347-69e0ea4140a2"},
+	}
+	st.Filters = &nodeapi.Filters{Egress: nodeapi.Egress{
+		Domains: []string{"example.com", "ads.open.example.com", "always.example"},
+		Scoped: []nodeapi.ScopedEgress{
+			{Kind: "port", Value: "1000-2000", Scope: "only", Slots: []string{"s1"}},
+			{Kind: "network", Value: "203.0.113.0/24", Scope: "except", Slots: []string{"s1"}},
+			{Kind: "domain", Value: "scoped.example", Scope: "except", Slots: []string{"s1"}},
+			{Kind: "domain", Value: "open.example.com", Scope: "allow", Slots: []string{"s1"}},
+		},
+	}}
+	changed := st
+	changed.Slots = append(slices.Clone(st.Slots), nodeapi.Slot{Name: "s3", UUID: "e93de115-cfed-416d-9f72-b0b6463a7c0f"})
+	updated := *st.Filters
+	updated.Egress.Scoped = slices.Clone(st.Filters.Egress.Scoped)
+	updated.Egress.Scoped[0].Slots = []string{"s1", "s3"}
+	changed.Filters = &updated
+	if outboundKey(changed) != outboundKey(st) || rulesKey(changed, false) == rulesKey(st, false) {
+		t.Fatal("changing the audience must reload rules without replacing outbounds")
+	}
+
+	raw, _, err := buildConfig(st, proto.Cert{}, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := executor.ParseWithBytes(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tuic := strings.ToLower(st.Slots[0].UUID)
+	for _, tc := range []struct {
+		name, inbound, user, host, ip string
+		port                          uint16
+		reject                        bool
+	}{
+		{name: "only selected slot", user: "s1", port: 1001, reject: true},
+		{name: "only selected TUIC slot", user: tuic, port: 1001, reject: true},
+		{name: "unselected slot", user: "s2", port: 1001},
+		{name: "network exception", user: "s1", ip: "203.0.113.20"},
+		{name: "network deny", user: "s2", ip: "203.0.113.20", reject: true},
+		{name: "network deny on shared protocol", ip: "203.0.113.20", reject: true},
+		{name: "scoped domain exception", user: "s1", host: "scoped.example"},
+		{name: "scoped domain deny", user: "s2", host: "scoped.example", reject: true},
+		{name: "scoped domain relay", inbound: nodeapi.RelayListener, user: "relay-2", host: "scoped.example"},
+		{name: "personal exception to parent domain", user: "s1", host: "cdn.open.example.com"},
+		{name: "personal exception in TUIC", user: tuic, host: "open.example.com"},
+		{name: "same domain denied for another client", user: "s2", host: "open.example.com", reject: true},
+		{name: "exception survives the relay", inbound: nodeapi.RelayListener, user: "relay-2", host: "cdn.open.example.com"},
+		{name: "narrower global block stays for the selected user", user: "s1", host: "ads.open.example.com", reject: true},
+		{name: "narrower global block stays on the exit", inbound: nodeapi.RelayListener, user: "relay-2", host: "ads.open.example.com", reject: true},
+		{name: "unrelated global rule still denies relay", inbound: nodeapi.RelayListener, user: "relay-2", host: "always.example", reject: true},
+		{name: "mail ban stays above exception", user: "s1", host: "open.example.com", port: 25, reject: true},
+		{name: "private network ban stays above exception", user: "s1", host: "open.example.com", ip: "127.0.0.1", reject: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &C.Metadata{InName: tc.inbound, InUser: tc.user, Host: tc.host, DstPort: tc.port}
+			if tc.ip != "" {
+				m.DstIP = netip.MustParseAddr(tc.ip)
+			}
+			for _, rule := range cfg.Rules {
+				if matched, target := rule.Match(m, C.RuleMatchHelper{}); matched {
+					if (target == "REJECT") != tc.reject {
+						t.Fatalf("matched %s, reject wanted %v", target, tc.reject)
+					}
+					return
+				}
+			}
+			t.Fatal("no route matched")
+		})
 	}
 }

@@ -45,7 +45,7 @@ func paymentUsers(st nodeapi.DesiredState) string {
 	return strings.Join(names, "/")
 }
 
-func paymentRules(st nodeapi.DesiredState) map[string][]string {
+func paymentRules(st nodeapi.DesiredState, globalEgress []string) map[string][]string {
 	guard := []string{"MATCH,REJECT"}
 	out := map[string][]string{paymentRule: guard}
 	if users := paymentUsers(st); users != "" {
@@ -53,7 +53,7 @@ func paymentRules(st nodeapi.DesiredState) map[string][]string {
 		way := paymentWayOut(st)
 		r := make([]string, 0, len(privateRules)+len(st.PaymentAccess.Domains)+len(telegramNetworks)+4)
 		r = append(r, privateRules...)
-		r = append(r, egressRules(st.Filters)...)
+		r = append(r, globalEgress...)
 		r = append(r, "NETWORK,UDP,REJECT")
 		if host, port := paymentPage(st.PaymentAccess); port != 0 {
 			match := "DOMAIN," + host

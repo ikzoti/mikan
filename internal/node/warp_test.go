@@ -81,7 +81,7 @@ func TestWarpConfig(t *testing.T) {
 	if _, _, err := buildConfig(st, proto.Cert{}, false, ""); err == nil {
 		t.Fatal("a bad endpoint was accepted")
 	}
-	if routesKey(warpState(), false) == routesKey(st, false) || routesKey(warpState(), false) != routesKey(warpState(), false) {
-		t.Fatal("routesKey must follow the WARP settings")
+	if outboundKey(warpState()) == outboundKey(st) || outboundKey(warpState()) != outboundKey(warpState()) {
+		t.Fatal("outboundKey must follow the WARP settings")
 	}
 }

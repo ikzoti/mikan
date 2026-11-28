@@ -11,6 +11,8 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"mikan/internal/panel/filters"
+
 	"mikan/internal/panel/domain"
 	"mikan/internal/panel/settings"
 	"mikan/internal/panel/store"
@@ -411,8 +413,10 @@ func (h *handlers) deleteGroup(ctx context.Context, in *groupIDInput) (*struct{}
 		if _, err := q.DeleteSubAssets(ctx, subpage.GroupAssets(in.ID)); err != nil {
 			return err
 		}
-		_, err = q.DeleteGroup(ctx, in.ID)
-		return err
+		if _, err := q.DeleteGroup(ctx, in.ID); err != nil {
+			return err
+		}
+		return filters.DropAudience(ctx, q, "groups", []int64{in.ID})
 	})
 	if err != nil {
 		return nil, err

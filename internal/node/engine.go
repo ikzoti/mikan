@@ -124,7 +124,7 @@ type Engine struct {
 	guardBlind bool
 	ownAddrs   func() ([]netip.Addr, error) // interfaceAddrs, unless a test swaps it
 
-	routes  string             // routesKey of what tunnel's proxies and rules hold now
+	routes  string             // rulesKey of the installed tunnel rules
 	exitDNS string             // exitDNSKey of the sniffer and resolver mihomo holds now
 	probeMu sync.Mutex         // one outbound probe at a time
 	warpMu  sync.Mutex         // the kept results below
@@ -137,13 +137,14 @@ type Engine struct {
 	probes    map[string]nodeapi.ProbeResult                                       // the same for the exits to other nodes
 }
 
-// routesKey covers what the outbound side of the config depends on.
-func routesKey(st nodeapi.DesiredState, allowPrivate bool) string {
+// rulesKey changes when routing rules need to be reloaded. Outbounds are keyed
+// independently so a changed audience cannot close existing WARP connections.
+func rulesKey(st nodeapi.DesiredState, allowPrivate bool) string {
+	rules, sub := routingRules(st, allowPrivate)
 	raw, _ := json.Marshal(struct {
-		Outbound string
-		R        []string
-		S        map[string][]string
-	}{outboundKey(st), rules(st, allowPrivate), paymentRules(st)})
+		Rules []string
+		Sub   map[string][]string
+	}{rules, sub})
 	return string(raw)
 }
 
@@ -416,7 +417,7 @@ func (e *Engine) apply(st nodeapi.DesiredState) (nodeapi.ApplyResult, error) {
 		e.warpMu.Unlock()
 	}
 
-	if key := routesKey(st, e.allowPrivate); key != e.routes {
+	if key := rulesKey(st, e.allowPrivate); key != e.routes {
 		tunnel.UpdateRules(cfg.Rules, cfg.SubRules, cfg.RuleProviders)
 		e.routes = key
 	}

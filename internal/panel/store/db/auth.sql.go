@@ -412,6 +412,17 @@ func (q *Queries) SetAdminTOTP(ctx context.Context, arg SetAdminTOTPParams) erro
 	return err
 }
 
+const lockSetting = `-- name: LockSetting :one
+SELECT value FROM settings WHERE key = $1 FOR UPDATE
+`
+
+func (q *Queries) LockSetting(ctx context.Context, key string) (string, error) {
+	row := q.db.QueryRowContext(ctx, lockSetting, key)
+	var value string
+	err := row.Scan(&value)
+	return value, err
+}
+
 const setSetting = `-- name: SetSetting :exec
 INSERT INTO settings (key, value) VALUES ($1, $2)
 ON CONFLICT (key) DO UPDATE SET value = excluded.value

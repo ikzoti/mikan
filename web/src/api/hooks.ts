@@ -117,14 +117,15 @@ const USERS_PAGE = 500;
 
 /** The users page's list, a page at a time. The poll asks every page loaded again, so it
  * slows down with them. */
-export function useUsersPages(f: UsersFilter) {
+export function useUsersPages(f: UsersFilter, opts?: { limit?: number; poll?: boolean }) {
+  const limit = opts?.limit ?? USERS_PAGE;
   return useInfiniteQuery({
-    queryKey: [...qk.users, "pages", f],
+    queryKey: [...qk.users, "pages", f, limit],
     initialPageParam: 0,
-    queryFn: ({ pageParam, signal }) => unwrap(api.GET("/api/v1/users", { params: { query: { ...usersQuery(f), limit: USERS_PAGE, offset: pageParam } }, signal })),
+    queryFn: ({ pageParam, signal }) => unwrap(api.GET("/api/v1/users", { params: { query: { ...usersQuery(f), limit, offset: pageParam } }, signal })),
     getNextPageParam: nextOffset,
     placeholderData: keepPreviousData,
-    refetchInterval: (q) => 30_000 * Math.max(1, q.state.data?.pages.length ?? 1),
+    refetchInterval: opts?.poll === false ? false : (q) => 30_000 * Math.max(1, q.state.data?.pages.length ?? 1),
   });
 }
 

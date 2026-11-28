@@ -11,6 +11,8 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"mikan/internal/panel/filters"
+
 	"mikan/internal/panel/store"
 	"mikan/internal/panel/store/db"
 )
@@ -243,6 +245,11 @@ func (h *handlers) orderFolders(ctx context.Context, in *orderFoldersInput) (*st
 func (h *handlers) deleteFolder(ctx context.Context, in *folderIDInput) (*struct{}, error) {
 	var freed int
 	err := h.d.Store.Tx(ctx, func(q *db.Queries) error {
+		if _, err := q.LockFolderForDelete(ctx, in.ID); errors.Is(err, sql.ErrNoRows) {
+			return huma.Error404NotFound("not_found")
+		} else if err != nil {
+			return err
+		}
 		// The users are counted for the journal; the foreign key lets them go.
 		rows, err := q.CountFolderUsers(ctx)
 		if err != nil {
@@ -263,11 +270,12 @@ func (h *handlers) deleteFolder(ctx context.Context, in *folderIDInput) (*struct
 		if n == 0 {
 			return huma.Error404NotFound("not_found")
 		}
-		return nil
+		return filters.DropAudience(ctx, q, "folders", []int64{in.ID})
 	})
 	if err != nil {
 		return nil, err
 	}
+	h.d.Changes.PoliciesChanged()
 	h.audit(ctx, sessionOf(ctx).AdminID, "folder.delete", "folder", strconv.FormatInt(in.ID, 10), map[string]any{"users": freed})
 	return nil, nil
 }

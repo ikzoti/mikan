@@ -887,6 +887,23 @@ export interface paths {
         patch: operations["update-filters"];
         trace?: never;
     };
+    "/api/v1/filters/site": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Изменить фильтр домена из карточки клиента */
+        put: operations["set-site-filter"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/folders": {
         parameters: {
             query?: never;
@@ -4277,6 +4294,17 @@ export interface components {
             /** @description На какое имя заказан сертификат: при смене домена новое */
             identifier?: string;
         };
+        AudienceRule: {
+            folders?: number[];
+            groups?: number[];
+            /** @enum {string} */
+            kind: "port" | "network" | "domain";
+            /** @enum {string} */
+            scope: "only" | "except";
+            tariffs?: number[];
+            users?: number[];
+            value: string;
+        };
         AuditEntry: {
             /** @description Например user.create, settings.update, auth.login_failed */
             action: string;
@@ -5385,6 +5413,8 @@ export interface components {
             networks: string[];
             /** @description Порты и диапазоны: 6881, 6881-6889 */
             ports: string[];
+            /** @description Фильтры для выбранных клиентов, папок, групп или тарифов. При отсутствии поля текущие правила сохраняются */
+            rules?: components["schemas"]["AudienceRule"][];
         };
         "Enable-promocodeRequest": {
             enabled: boolean;
@@ -5511,6 +5541,12 @@ export interface components {
             ingress: components["schemas"]["IngressFilter"];
             /** @description Что закрывает почтовый пресет */
             mail_ports: string[];
+            /** @description Персональные правила доменов из карточек клиентов */
+            sites: components["schemas"]["SiteFilterOverride"][];
+            /** @description Имена клиентов, выбранных в правилах, по их ID */
+            user_names: {
+                [key: string]: string;
+            };
         };
         FolderView: {
             /** @enum {string} */
@@ -8109,6 +8145,16 @@ export interface components {
             brand_accent?: string;
             config: components["schemas"]["Page"];
         };
+        PutSiteFilterInputBody: {
+            /** @enum {string} */
+            action: "block-all" | "unblock-all" | "block" | "allow" | "clear";
+            domain: string;
+            /**
+             * Format: int64
+             * @description Клиент для личного правила
+             */
+            user_id?: number;
+        };
         PutSitePageInputBody: {
             /** @description Документ конструктора (JSON) */
             doc: string;
@@ -8696,6 +8742,12 @@ export interface components {
             path: string;
             /** @enum {string} */
             type: "text/html" | "font/woff2" | "image/jpeg" | "image/png" | "image/webp";
+        };
+        SiteFilterOverride: {
+            allow: boolean;
+            domain: string;
+            /** Format: int64 */
+            user_id: number;
         };
         SitePageOutputBody: {
             /** @description Документ конструктора (JSON), как он был сохранён; пусто: своей страницы ещё нет */
@@ -12345,6 +12397,39 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["PatchFiltersInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FiltersView"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "set-site-filter": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutSiteFilterInputBody"];
             };
         };
         responses: {

@@ -3,45 +3,114 @@ package node
 import (
 	"net/netip"
 	"slices"
+	"strings"
 
 	"mikan/internal/nodeapi"
 )
 
-// egressRules refuse users' traffic to the ports, networks and domains of the egress
-// filter. They come after the node's own REJECT rules and before the cascade and WARP, so
-// no way out reaches what the filter closes. Each entry is read as the panel reads it
-// and written in that canonical form; what does not parse is left out: mihomo refuses
-// the whole config over one rule it cannot parse, and an older or broken panel must not
-// take the node's users down with it.
-func egressRules(f *nodeapi.Filters) []string {
-	if f == nil {
-		return nil
+// egressRules renders destination filters before cascade and WARP. The entry
+// node evaluates scoped blocks, where the authenticated slot is known.
+func egressRules(st nodeapi.DesiredState) (global, scoped []string) {
+	if st.Filters == nil {
+		return nil, nil
 	}
-	var r []string
-	for _, p := range f.Egress.Ports {
-		if c, ok := nodeapi.CanonPorts(p); ok {
-			r = append(r, "DST-PORT,"+c+",REJECT")
+	e := st.Filters.Egress
+	slots := make(map[string]string, len(st.Slots))
+	for _, slot := range st.Slots {
+		if ruleUser(slot.Name) && ruleUser(slot.UUID) {
+			slots[slot.Name] = strings.ToLower(slot.UUID)
 		}
 	}
-	for _, n := range f.Egress.Networks {
-		p, ok := nodeapi.CanonNetwork(n)
+	relay := "IN-NAME," + nodeapi.RelayListener
+	local := "NOT,((" + relay + "))"
+	exceptions := map[string][]string{}
+	for _, rule := range e.Scoped {
+		target := egressTarget(rule.Kind, rule.Value)
+		if target == "" {
+			continue
+		}
+		var ids []string
+		for _, name := range rule.Slots {
+			if uuid, ok := slots[name]; ok {
+				ids = append(ids, name, uuid)
+			}
+		}
+		slices.Sort(ids)
+		user := "IN-USER," + strings.Join(slices.Compact(ids), "/")
+		switch rule.Scope {
+		case "only":
+			if len(ids) > 0 {
+				scoped = append(scoped, "AND,(("+target+"),("+local+"),("+user+")),REJECT")
+			}
+		case "except":
+			match := "(" + target + "),(" + local + ")"
+			if len(ids) > 0 {
+				match += ",(NOT,((" + user + ")))"
+			}
+			scoped = append(scoped, "AND,("+match+"),REJECT")
+		case "allow":
+			if rule.Kind != "domain" || len(ids) == 0 {
+				continue
+			}
+			// Exempt just this domain's block and blocks on its ancestors. The
+			// exit can trust the entry's decision for these matching destinations.
+			match := "(AND,((" + target + "),(OR,((" + user + "),(" + relay + ")))))"
+			host := strings.TrimPrefix(target, "DOMAIN-SUFFIX,")
+			for {
+				exceptions[host] = append(exceptions[host], match)
+				_, parent, ok := strings.Cut(host, ".")
+				if !ok {
+					break
+				}
+				host = parent
+			}
+		}
+	}
+	for _, p := range e.Ports {
+		if target := egressTarget("port", p); target != "" {
+			global = append(global, target+",REJECT")
+		}
+	}
+	for _, n := range e.Networks {
+		if target := egressTarget("network", n); target != "" {
+			global = append(global, target+",REJECT")
+		}
+	}
+	for _, d := range e.Domains {
+		domain, ok := nodeapi.CanonDomain(d)
 		if !ok {
 			continue
 		}
-		kind := "IP-CIDR"
-		if p.Addr().Is6() {
-			kind = "IP-CIDR6"
+		target := "DOMAIN-SUFFIX," + domain
+		if allow := exceptions[domain]; len(allow) > 0 {
+			target = "AND,((" + target + "),(NOT,((OR,(" + strings.Join(allow, ",") + ")))))"
 		}
-		// Without no-resolve, as the private ranges: a domain that resolves into the
-		// network is refused too.
-		r = append(r, kind+","+p.String()+",REJECT")
+		global = append(global, target+",REJECT")
 	}
-	for _, d := range f.Egress.Domains {
-		if c, ok := nodeapi.CanonDomain(d); ok {
-			r = append(r, "DOMAIN-SUFFIX,"+c+",REJECT")
+	return global, scoped
+}
+
+func ruleUser(s string) bool {
+	return safeRuleValue(s) && !strings.ContainsAny(s, "()/")
+}
+
+func egressTarget(kind, value string) string {
+	v, ok := nodeapi.CanonEgress(kind, value)
+	if !ok {
+		return ""
+	}
+	switch kind {
+	case "port":
+		return "DST-PORT," + v
+	case "network":
+		if strings.Contains(v, ":") {
+			return "IP-CIDR6," + v
 		}
+		// As with private ranges, let the core resolve domains to check the network.
+		return "IP-CIDR," + v
+	default:
+		return "DOMAIN-SUFFIX," + v
 	}
-	return r
 }
 
 // ingress is the ingress filter as the tunnel checks it: the networks as sorted ranges

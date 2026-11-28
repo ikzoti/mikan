@@ -909,6 +909,68 @@
         ],
         "type": "object"
       },
+      "AudienceRule": {
+        "additionalProperties": false,
+        "properties": {
+          "folders": {
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "maxItems": 1000,
+            "type": "array"
+          },
+          "groups": {
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "maxItems": 1000,
+            "type": "array"
+          },
+          "kind": {
+            "enum": [
+              "port",
+              "network",
+              "domain"
+            ],
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "only",
+              "except"
+            ],
+            "type": "string"
+          },
+          "tariffs": {
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "maxItems": 1000,
+            "type": "array"
+          },
+          "users": {
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "maxItems": 1000,
+            "type": "array"
+          },
+          "value": {
+            "maxLength": 1024,
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "value",
+          "scope"
+        ],
+        "type": "object"
+      },
       "AuditEntry": {
         "additionalProperties": false,
         "properties": {
@@ -3692,6 +3754,14 @@
             },
             "maxItems": 1000,
             "type": "array"
+          },
+          "rules": {
+            "description": "Фильтры для выбранных клиентов, папок, групп или тарифов. При отсутствии поля текущие правила сохраняются",
+            "items": {
+              "$ref": "#/components/schemas/AudienceRule"
+            },
+            "maxItems": 1000,
+            "type": "array"
           }
         },
         "required": [
@@ -4019,12 +4089,28 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "sites": {
+            "description": "Персональные правила доменов из карточек клиентов",
+            "items": {
+              "$ref": "#/components/schemas/SiteFilterOverride"
+            },
+            "type": "array"
+          },
+          "user_names": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Имена клиентов, выбранных в правилах, по их ID",
+            "type": "object"
           }
         },
         "required": [
           "egress",
           "ingress",
-          "mail_ports"
+          "mail_ports",
+          "sites",
+          "user_names"
         ],
         "type": "object"
       },
@@ -11050,6 +11136,36 @@
         ],
         "type": "object"
       },
+      "PutSiteFilterInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "block-all",
+              "unblock-all",
+              "block",
+              "allow",
+              "clear"
+            ],
+            "type": "string"
+          },
+          "domain": {
+            "maxLength": 1024,
+            "type": "string"
+          },
+          "user_id": {
+            "description": "Клиент для личного правила",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "domain",
+          "action"
+        ],
+        "type": "object"
+      },
       "PutSitePageInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -12783,6 +12899,27 @@
           "path",
           "type",
           "data"
+        ],
+        "type": "object"
+      },
+      "SiteFilterOverride": {
+        "additionalProperties": false,
+        "properties": {
+          "allow": {
+            "type": "boolean"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "user_id": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "user_id",
+          "domain",
+          "allow"
         ],
         "type": "object"
       },
@@ -19610,6 +19747,47 @@
           }
         },
         "summary": "Настроить фильтры трафика",
+        "tags": [
+          "filters"
+        ]
+      }
+    },
+    "/api/v1/filters/site": {
+      "put": {
+        "operationId": "set-site-filter",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutSiteFilterInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FiltersView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Изменить фильтр домена из карточки клиента",
         "tags": [
           "filters"
         ]

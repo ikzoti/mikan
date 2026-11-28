@@ -94,6 +94,9 @@ RETURNING last;
 INSERT INTO slots (name, uuid, secret, state, created_at)
 SELECT unnest(sqlc.arg(names)::text[]), unnest(sqlc.arg(uuids)::text[]), unnest(sqlc.arg(secrets)::text[]), 'free', sqlc.arg(created_at)::bigint;
 
+-- name: LockFilterUsers :many
+SELECT id FROM users WHERE id = ANY(sqlc.arg(ids)::bigint[]) ORDER BY id FOR KEY SHARE;
+
 -- name: LockUserRows :many
 -- The users of ids that exist, locked in id order for a change.
 SELECT * FROM users WHERE id = ANY(sqlc.arg(ids)::bigint[]) ORDER BY id FOR NO KEY UPDATE;

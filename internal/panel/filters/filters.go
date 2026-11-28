@@ -34,10 +34,12 @@ type Egress struct {
 	Enabled bool `json:"enabled"`
 	// Mail closes MailPorts: a shared VPN address that sends mail is on blacklists within
 	// hours.
-	Mail     bool     `json:"mail"`
-	Ports    []string `json:"ports"`
-	Networks []string `json:"networks"`
-	Domains  []string `json:"domains"`
+	Mail     bool                 `json:"mail"`
+	Ports    []string             `json:"ports"`
+	Networks []string             `json:"networks"`
+	Domains  []string             `json:"domains"`
+	Rules    []AudienceRule       `json:"rules,omitempty"`
+	Sites    []SiteFilterOverride `json:"sites,omitempty"`
 }
 
 type Ingress struct {
@@ -100,18 +102,14 @@ func (c *Config) Validate() error {
 		for i, v := range *x.l {
 			s, ok := x.canon(strings.TrimSpace(v))
 			if !ok {
-				// The answer names the entry; a pasted page must not come back whole.
-				if r := []rune(v); len(r) > 64 {
-					v = string(r[:64]) + "…"
-				}
-				return &Problem{List: x.name, Index: i, Value: v}
+				return &Problem{List: x.name, Index: i, Value: entryValue(v)}
 			}
 			out = append(out, s)
 		}
 		slices.Sort(out)
 		*x.l = slices.Compact(out)
 	}
-	return nil
+	return c.Egress.validateScoped()
 }
 
 func canonNetwork(s string) (string, bool) {
@@ -133,8 +131,16 @@ func (c Config) State() *nodeapi.Filters {
 	if c.Ingress.Enabled && len(c.Ingress.Networks) > 0 {
 		f.Ingress = nodeapi.Ingress{Allow: c.Ingress.Allow, Networks: c.Ingress.Networks}
 	}
-	if len(f.Egress.Ports)+len(f.Egress.Networks)+len(f.Egress.Domains)+len(f.Ingress.Networks) == 0 {
+	if len(f.Egress.Ports)+len(f.Egress.Networks)+len(f.Egress.Domains)+len(f.Ingress.Networks) == 0 && !c.Egress.HasScoped() {
 		return nil
 	}
 	return f
+}
+
+// The answer names the entry without sending a whole pasted page back.
+func entryValue(v string) string {
+	if r := []rune(v); len(r) > 64 {
+		return string(r[:64]) + "…"
+	}
+	return v
 }

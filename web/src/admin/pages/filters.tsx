@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ChangeEvent, FormEvent } from "react";
 import { api, errorText, unwrap, type Schemas } from "../../api/client";
@@ -12,6 +13,8 @@ import { useDraft } from "../../lib/draft";
 import { fieldErrors } from "../../lib/fields";
 import { splitList } from "../../lib/list";
 import { BackToAddons } from "./addon-row";
+import { sameDestination } from "./filter-destinations";
+import { FilterRules } from "./filter-rules";
 import { TrafficDetailCard } from "./traffic-detail";
 
 type View = Schemas["FiltersView"];
@@ -57,18 +60,22 @@ export function FiltersPage() {
   );
 }
 
-const egressDraft = ({ egress: e }: View) => ({ enabled: e.enabled, mail: e.mail, ports: text(e.ports), networks: text(e.networks), domains: text(e.domains) });
+const egressDraft = ({ egress: e }: View) => ({ enabled: e.enabled, mail: e.mail, ports: text(e.ports), networks: text(e.networks), domains: text(e.domains), rules: e.rules ?? [] });
 const ingressDraft = ({ ingress: i }: View) => ({ enabled: i.enabled, mode: (i.allow ? "allow" : "deny") as "allow" | "deny", networks: text(i.networks) });
 
 function EgressCard({ v }: { v: View }) {
   const save = useSaveFilters();
   const { draft, setDraft, dirty, reset } = useDraft(egressDraft(v));
+  const [editorSession, setEditorSession] = useState(0);
   const errors = save.variables?.egress ? fieldErrors(save.error) : {};
   const edit = (k: "ports" | "networks" | "domains") => (ev: ChangeEvent<HTMLTextAreaElement>) => setDraft((d) => ({ ...d, [k]: ev.target.value }));
   const submit = (ev: FormEvent) => {
     ev.preventDefault();
     // The panel puts the lists in order: the form takes them as saved.
-    save.mutate({ egress: { enabled: draft.enabled, mail: draft.mail, ports: splitList(draft.ports), networks: splitList(draft.networks), domains: splitList(draft.domains) } }, { onSuccess: (nv) => setDraft(egressDraft(nv)) });
+    save.mutate({ egress: { enabled: draft.enabled, mail: draft.mail, ports: splitList(draft.ports), networks: splitList(draft.networks), domains: splitList(draft.domains), rules: draft.rules } }, { onSuccess: (nv) => {
+      setDraft(egressDraft(nv));
+      setEditorSession((n) => n + 1);
+    } });
   };
   return (
     <section className="card glass reveal" style={{ "--i": 1 } as React.CSSProperties}>
@@ -85,7 +92,26 @@ function EgressCard({ v }: { v: View }) {
         <Field label={t("filters.domains")} htmlFor="f-domains" hint={t("filters.domainsHint")} error={listError(errors, "egress.domains")}>
           <textarea id="f-domains" className="input mono min-h-[72px]" value={draft.domains} onChange={edit("domains")} spellCheck={false} placeholder="example.com" />
         </Field>
-        <FormActions dirty={dirty} saving={save.isPending} onReset={reset} />
+        <FilterRules
+          key={editorSession}
+          rules={draft.rules}
+          userNames={v.user_names}
+          globalValues={{ port: splitList(draft.ports), network: splitList(draft.networks), domain: splitList(draft.domains) }}
+          error={listError(errors, "egress.rules")}
+          onRemove={(index) => setDraft((d) => ({ ...d, rules: d.rules.filter((_, i) => i !== index) }))}
+          onSave={(index, { scope, ...rule }) => setDraft((d) => {
+            const key = rule.kind === "network" ? "networks" : rule.kind === "port" ? "ports" : "domains";
+            const rules = d.rules.filter((_, i) => i !== index);
+            const globals = splitList(d[key]).filter((value) => !sameDestination(rule.kind, value, rule.value));
+            if (scope === "all") globals.push(rule.value);
+            else rules.splice(index < 0 ? rules.length : index, 0, { ...rule, scope });
+            return { ...d, [key]: text(globals), rules };
+          })}
+        />
+        <FormActions dirty={dirty} saving={save.isPending} onReset={() => {
+          reset();
+          setEditorSession((n) => n + 1);
+        }} />
       </form>
     </section>
   );

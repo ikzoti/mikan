@@ -15,6 +15,7 @@ import (
 
 	"mikan/internal/panel/events"
 	"mikan/internal/panel/events/feed"
+	"mikan/internal/panel/filters"
 	"mikan/internal/panel/model"
 	"mikan/internal/panel/secure"
 	"mikan/internal/panel/settings"
@@ -880,15 +881,14 @@ func (s *Users) Delete(ctx context.Context, id int64) error {
 }
 
 func (s *Users) deleteOn(ctx context.Context, q *db.Queries, id int64) error {
-	now := s.now().Unix()
-	u, err := q.GetUser(ctx, id)
-	if errors.Is(err, sql.ErrNoRows) {
-		return ErrNotFound
-	}
+	rows, err := q.LockUserRowsForDelete(ctx, []int64{id})
 	if err != nil {
 		return err
 	}
-	return deleteUsers(ctx, q, []int64{u.ID}, now)
+	if len(rows) == 0 {
+		return ErrNotFound
+	}
+	return deleteUsers(ctx, q, []int64{id}, s.now().Unix())
 }
 
 // deleteUsers deletes users on q's transaction. Their slots and those of their registered
@@ -898,6 +898,9 @@ func deleteUsers(ctx context.Context, q *db.Queries, ids []int64, now int64) err
 		return err
 	}
 	if err := q.DeleteUsersBoundDevices(ctx, ids); err != nil {
+		return err
+	}
+	if err := filters.DropAudience(ctx, q, "users", ids); err != nil {
 		return err
 	}
 	return q.DeleteUsers(ctx, ids)
@@ -910,10 +913,10 @@ const (
 	BulkDisable = "disable"
 	BulkEnable  = "enable"
 	BulkDelete  = "delete"
-	// Where a user is listed, not what the user may do: no word goes to the nodes.
+	// Visibility in the panel does not change node policies.
 	BulkHide   = "hide"
 	BulkUnhide = "unhide"
-	BulkMove   = "move"
+	BulkMove   = "move" // moving folders can change traffic filters
 	// BulkGroup puts the users into a group of their own: what they may connect to follows it.
 	BulkGroup = "group"
 )
@@ -958,9 +961,7 @@ func bulkIDs(ids []int64) []int64 {
 // changes left behind). A user that is gone is skipped; a user listed twice is done once.
 // It returns how many users changed.
 //
-// The users are locked in id order and changed by a few set-based statements, so READ
-// COMMITTED is enough: what each change reads (the expiry an extension adds to) comes
-// from the locked rows, and the traffic batches lock the same rows in the same order.
+// The users are locked in ID order and changed by a few set-based statements.
 func (s *Users) Bulk(ctx context.Context, ids []int64, action string, opt BulkOpt) (int, error) {
 	if err := checkBulk(action, opt); err != nil {
 		return 0, err
@@ -1033,7 +1034,7 @@ func (s *Users) Bulk(ctx context.Context, ids []int64, action string, opt BulkOp
 	if err != nil {
 		return 0, err
 	}
-	if done > 0 && action != BulkHide && action != BulkUnhide && action != BulkMove {
+	if done > 0 && action != BulkHide && action != BulkUnhide {
 		s.changes.PoliciesChanged()
 	}
 	return done, nil
