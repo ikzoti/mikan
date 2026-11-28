@@ -900,7 +900,7 @@ func deleteUsers(ctx context.Context, q *db.Queries, ids []int64, now int64) err
 	if err := q.DeleteUsersBoundDevices(ctx, ids); err != nil {
 		return err
 	}
-	if err := filters.DropAudience(ctx, q, "users", ids); err != nil {
+	if err := filters.DropAudience(ctx, q, filters.AudienceUsers, ids); err != nil {
 		return err
 	}
 	return q.DeleteUsers(ctx, ids)

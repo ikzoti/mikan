@@ -98,6 +98,8 @@ func TestScopedFiltersAPI(t *testing.T) {
 	send := func(method, target string, input any) {
 		t.Helper()
 		resp, body := h.do(method, target, input, csrf)
+		// Decoding into the previous answer would keep fields that omitempty left out.
+		v.Egress, v.Sites, v.UserNames = filters.Egress{}, nil, nil
 		if resp.StatusCode != http.StatusOK || json.Unmarshal(body, &v) != nil {
 			t.Fatalf("%s %s: %d %s", method, target, resp.StatusCode, body)
 		}
@@ -161,17 +163,40 @@ func TestScopedFiltersAPI(t *testing.T) {
 	}
 	egress["rules"] = []filters.AudienceRule{
 		{Kind: "domain", Value: "audience.example", Scope: "except", Folders: []int64{folder.ID}, Groups: []int64{group.ID}},
+		{Kind: "port", Value: "6881", Scope: "only", Folders: []int64{folder.ID}},
 	}
 	send(http.MethodPatch, path, map[string]any{"egress": egress})
-	for _, target := range []string{"folders/" + strconv.FormatInt(folder.ID, 10), "groups/" + strconv.FormatInt(group.ID, 10)} {
+	remove := func(target string) {
+		t.Helper()
 		resp, body := h.do(http.MethodDelete, "/"+adminPath+"/api/v1/"+target, nil, csrf)
 		if resp.StatusCode != http.StatusNoContent {
 			t.Fatalf("delete %s: %d %s", target, resp.StatusCode, body)
 		}
+		send(http.MethodGet, path, nil)
 	}
-	send(http.MethodGet, path, nil)
-	if len(v.Egress.Rules) != 0 {
-		t.Fatalf("deleted audiences left settings: %+v", v.Egress.Rules)
+	remove("folders/" + strconv.FormatInt(folder.ID, 10))
+	if len(v.Egress.Rules) != 1 || len(v.Egress.Rules[0].Folders) != 0 || !slices.Equal(v.Egress.Rules[0].Groups, []int64{group.ID}) {
+		t.Fatalf("a deleted folder must keep the other audience and drop the emptied only rule: %+v", v.Egress.Rules)
+	}
+	// Everyone except nobody is everyone: the emptied except rule becomes a global block.
+	remove("groups/" + strconv.FormatInt(group.ID, 10))
+	if len(v.Egress.Rules) != 0 || !slices.Equal(v.Egress.Domains, []string{"audience.example", "example.com"}) || len(v.Egress.Ports) != 0 {
+		t.Fatalf("deleted audiences: rules %+v, domains %v, ports %v", v.Egress.Rules, v.Egress.Domains, v.Egress.Ports)
+	}
+
+	for _, missing := range []struct {
+		rule filters.AudienceRule
+		code string
+	}{
+		{filters.AudienceRule{Kind: "port", Value: "6881", Scope: "only", Folders: []int64{folder.ID}}, "folder_not_found"},
+		{filters.AudienceRule{Kind: "port", Value: "6881", Scope: "only", Tariffs: []int64{tariffs[len(tariffs)-1].ID + 1000}}, "not_found"},
+		{filters.AudienceRule{Kind: "port", Value: "6881", Scope: "only", Users: []int64{user.ID}}, "not_found"},
+	} {
+		egress["rules"] = []filters.AudienceRule{missing.rule}
+		resp, body := h.do(http.MethodPatch, path, map[string]any{"egress": egress}, csrf)
+		if resp.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(string(body), missing.code) {
+			t.Fatalf("a rule naming what is gone: %d %s", resp.StatusCode, body)
+		}
 	}
 }
 

@@ -90,9 +90,34 @@ func (r AudienceRule) hasAudience() bool {
 	return len(r.Users)+len(r.Folders)+len(r.Tariffs)+len(r.Groups) > 0
 }
 
+// Audience is what an AudienceRule selects clients by and what can be deleted under it.
+// Plans are archived, never deleted, so they have none.
+type Audience string
+
+const (
+	AudienceUsers   Audience = "users"
+	AudienceFolders Audience = "folders"
+	AudienceGroups  Audience = "groups"
+)
+
+func (r *AudienceRule) ids(kind Audience) *[]int64 {
+	switch kind {
+	case AudienceUsers:
+		return &r.Users
+	case AudienceFolders:
+		return &r.Folders
+	case AudienceGroups:
+		return &r.Groups
+	}
+	return nil
+}
+
 // DropAudience removes deleted references while holding the settings row lock. A
 // READ COMMITTED bulk delete then sees the last saved filters before changing them.
-func DropAudience(ctx context.Context, q *db.Queries, kind string, ids []int64) error {
+func DropAudience(ctx context.Context, q *db.Queries, kind Audience, ids []int64) error {
+	if new(AudienceRule).ids(kind) == nil {
+		return ErrConfig
+	}
 	if _, err := q.LockSetting(ctx, KeyConfig); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
@@ -108,35 +133,52 @@ func DropAudience(ctx context.Context, q *db.Queries, kind string, ids []int64) 
 	for _, id := range ids {
 		removed[id] = true
 	}
-	changed := false
-	if kind == "users" {
+	changed := c.Egress.dropRules(kind, removed)
+	if kind == AudienceUsers {
 		before := len(c.Egress.Sites)
 		c.Egress.Sites = slices.DeleteFunc(c.Egress.Sites, func(site SiteFilterOverride) bool { return removed[site.UserID] })
-		changed = len(c.Egress.Sites) != before
+		changed = changed || len(c.Egress.Sites) != before
 	}
-	rules := c.Egress.Rules[:0]
-	for _, rule := range c.Egress.Rules {
-		var selected *[]int64
-		switch kind {
-		case "users":
-			selected = &rule.Users
-		case "folders":
-			selected = &rule.Folders
-		case "groups":
-			selected = &rule.Groups
-		default:
-			return ErrConfig
-		}
-		before := len(*selected)
-		*selected = slices.DeleteFunc(*selected, func(id int64) bool { return removed[id] })
-		changed = changed || len(*selected) != before
-		if rule.hasAudience() {
+	if !changed {
+		return nil
+	}
+	return settings.Set(ctx, set, KeyConfig, c)
+}
+
+// dropRules takes the removed IDs out of the rules. A rule left with no audience goes,
+// but "everyone except no one" is everyone: its destination moves to the global list
+// instead of opening to all.
+func (e *Egress) dropRules(kind Audience, removed map[int64]bool) bool {
+	changed := false
+	rules := e.Rules[:0]
+	for _, rule := range e.Rules {
+		ids := rule.ids(kind)
+		before := len(*ids)
+		*ids = slices.DeleteFunc(*ids, func(id int64) bool { return removed[id] })
+		changed = changed || len(*ids) != before
+		switch {
+		case rule.hasAudience():
 			rules = append(rules, rule)
+		case rule.Scope == "except":
+			e.blockForAll(rule.Kind, rule.Value)
 		}
 	}
-	c.Egress.Rules = rules
-	if changed {
-		return settings.Set(ctx, set, KeyConfig, c)
+	e.Rules = rules
+	return changed
+}
+
+// blockForAll adds a canonical destination to the global list of its kind, kept in the
+// order Validate gives it.
+func (e *Egress) blockForAll(kind, value string) {
+	list := &e.Domains
+	switch kind {
+	case "port":
+		list = &e.Ports
+	case "network":
+		list = &e.Networks
 	}
-	return nil
+	if !slices.Contains(*list, value) {
+		*list = append(*list, value)
+		slices.Sort(*list)
+	}
 }

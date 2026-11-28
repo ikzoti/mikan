@@ -196,6 +196,35 @@ func (q *Queries) LockFolderUsers(ctx context.Context, folderID sql.NullInt64) (
 	return items, nil
 }
 
+const lockFolders = `-- name: LockFolders :many
+SELECT id FROM user_folders WHERE id = ANY($1::bigint[]) ORDER BY id FOR KEY SHARE
+`
+
+// The folders of ids that exist, kept from being deleted until the transaction ends, in
+// id order.
+func (q *Queries) LockFolders(ctx context.Context, ids []int64) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, lockFolders, pq.Array(ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const setFolderSort = `-- name: SetFolderSort :exec
 UPDATE user_folders SET sort = $1 WHERE id = $2
 `

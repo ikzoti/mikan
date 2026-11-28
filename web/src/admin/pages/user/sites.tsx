@@ -31,8 +31,8 @@ export function SitesSection({ u }: { u: User }) {
   const setFilter = useMutation({
     mutationFn: ({ site, action }: { site: string; action: SiteAction }) =>
       unwrap(api.PUT("/api/v1/filters/site", { body: { user_id: u.id, domain: site, action } })),
-    onSuccess: (data) => {
-      qc.setQueryData(qk.filters, data);
+    onSuccess: (saved) => {
+      qc.setQueryData(qk.filters, saved);
       toast.ok(t("filters.saved"));
     },
     onError: (e) => toast.error(errorText(e)),
@@ -100,7 +100,10 @@ export function SitesSection({ u }: { u: User }) {
                 const site = s.site === "*" ? t("userDrawer.sites.other") : s.site;
                 const isDomain = s.site !== "*" && /[a-z]/i.test(s.site) && !s.site.includes(":");
                 const override = personal.find((rule) => rule.domain === s.site);
-                const globalListed = egress?.domains.includes(s.site);
+                // The global entry that closes the site, its own or a parent's: unblocking
+                // the site alone would leave it closed.
+                const listedAs = egress?.domains.find((domain) => domain === s.site)
+                  ?? egress?.domains.find((domain) => matchesDomain(s.site, domain));
                 const personalBlock = personal.some((rule) => !rule.allow && matchesDomain(s.site, rule.domain));
                 const scopedBlock = scoped.some((rule) => rule.kind === "domain" && matchesDomain(s.site, rule.value));
                 const globalBlock = egress?.domains.some((domain) => matchesDomain(s.site, domain) && !personal.some(
@@ -125,8 +128,8 @@ export function SitesSection({ u }: { u: User }) {
                         </Menu.Trigger>
                         <Menu.Portal>
                           <Menu.Content className="menu glass-strong" align="end" sideOffset={6}>
-                            <Menu.Item className="menu-item" onSelect={() => setFilter.mutate({ site: s.site, action: globalListed ? "unblock-all" : "block-all" })}>
-                              {t(globalListed ? "userDrawer.sites.unblock" : "userDrawer.sites.block", { site })}
+                            <Menu.Item className="menu-item" onSelect={() => setFilter.mutate(listedAs ? { site: listedAs, action: "unblock-all" } : { site: s.site, action: "block-all" })}>
+                              {listedAs ? t("userDrawer.sites.unblock", { site: listedAs }) : t("userDrawer.sites.block", { site })}
                             </Menu.Item>
                             <Menu.Item className="menu-item" disabled={override?.allow === false} onSelect={() => setFilter.mutate({ site: s.site, action: "block" })}>
                               {t("userDrawer.sites.blockClient", { site })}

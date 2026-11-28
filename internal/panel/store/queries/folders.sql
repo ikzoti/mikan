@@ -37,6 +37,11 @@ SELECT folder_id, count(*) AS n FROM users WHERE folder_id IS NOT NULL GROUP BY 
 -- cannot meet a folder that is gone.
 SELECT id FROM user_folders WHERE id = $1 FOR KEY SHARE;
 
+-- name: LockFolders :many
+-- The folders of ids that exist, kept from being deleted until the transaction ends, in
+-- id order.
+SELECT id FROM user_folders WHERE id = ANY(sqlc.arg(ids)::bigint[]) ORDER BY id FOR KEY SHARE;
+
 -- name: SetUserHidden :exec
 UPDATE users SET hidden = sqlc.arg(hidden)::bigint, updated_at = sqlc.arg(updated_at) WHERE id = sqlc.arg(id);
 

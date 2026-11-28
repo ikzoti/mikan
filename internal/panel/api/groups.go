@@ -416,7 +416,7 @@ func (h *handlers) deleteGroup(ctx context.Context, in *groupIDInput) (*struct{}
 		if _, err := q.DeleteGroup(ctx, in.ID); err != nil {
 			return err
 		}
-		return filters.DropAudience(ctx, q, "groups", []int64{in.ID})
+		return filters.DropAudience(ctx, q, filters.AudienceGroups, []int64{in.ID})
 	})
 	if err != nil {
 		return nil, err

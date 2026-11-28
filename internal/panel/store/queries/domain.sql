@@ -4,6 +4,10 @@ SELECT * FROM tariffs WHERE archived = 0 ORDER BY sort, id;
 -- name: GetTariff :one
 SELECT * FROM tariffs WHERE id = $1;
 
+-- name: ListTariffIDs :many
+-- The plans of ids that exist, archived ones too.
+SELECT id FROM tariffs WHERE id = ANY(sqlc.arg(ids)::bigint[]) ORDER BY id;
+
 -- name: CountTariffs :one
 SELECT count(*) FROM tariffs;
 

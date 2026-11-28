@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sameDestination } from "./filter-destinations";
+import { coveringDomain, sameDestination } from "./filter-destinations";
 
 describe("network destinations", () => {
   it.each([
@@ -22,5 +22,35 @@ describe("network destinations", () => {
     ["::ffff:198.51.100.7/95", "0.0.0.0/0"],
   ])("keeps %s and %s separate", (a, b) => {
     expect(sameDestination("network", a, b)).toBe(false);
+  });
+});
+
+describe("port destinations", () => {
+  it.each([
+    ["1000 - 2000", "1000-2000"],
+    ["443-443", "443"],
+    ["0443", "443"],
+  ])("matches equivalent forms %s and %s", (a, b) => {
+    expect(sameDestination("port", a, b)).toBe(true);
+  });
+
+  it.each([
+    ["1000-2000", "1000-2001"],
+    ["abc", "abd"],
+    ["1-2-3", "1-3"],
+  ])("keeps %s and %s separate", (a, b) => {
+    expect(sameDestination("port", a, b)).toBe(false);
+  });
+});
+
+describe("domain destinations", () => {
+  it("reads a domain as the panel does", () => {
+    expect(sameDestination("domain", "*.Example.COM.", "example.com")).toBe(true);
+  });
+
+  it("finds the global domain that covers a site", () => {
+    expect(coveringDomain("cdn.example.com", ["other.example", "example.com"])).toBe("example.com");
+    expect(coveringDomain("example.com", ["example.com"])).toBe("example.com");
+    expect(coveringDomain("badexample.com", ["example.com"])).toBeUndefined();
   });
 });

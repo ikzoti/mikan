@@ -50,12 +50,19 @@ function normalizedNetwork(value: string): string | undefined {
   return `${width}:${address >> BigInt(width - bits)}/${bits}`;
 }
 
+// Match the panel's port normalization (CanonPorts): spaces around the dash, leading
+// zeros and a range of one port are the same entry.
+function normalizedPorts(value: string): string | undefined {
+  const parts = value.split("-").map((part) => part.trim());
+  if (parts.length > 2 || !parts.every((part) => /^\d{1,5}$/.test(part))) return;
+  const [lo, hi = lo] = parts.map(Number);
+  return lo === hi ? String(lo) : `${lo}-${hi}`;
+}
+
 export function sameDestination(kind: "domain" | "network" | "port", a: string, b: string): boolean {
   if (a.trim() === b.trim()) return true;
   if (kind === "domain") return normalizedDomain(a) === normalizedDomain(b);
-  if (kind === "network") {
-    const network = normalizedNetwork(a);
-    return network !== undefined && network === normalizedNetwork(b);
-  }
-  return false;
+  const normalized = kind === "network" ? normalizedNetwork : normalizedPorts;
+  const value = normalized(a);
+  return value !== undefined && value === normalized(b);
 }

@@ -241,27 +241,24 @@ func lockFilterAudience(ctx context.Context, q *db.Queries, rules []filters.Audi
 	if err := domain.LockGroups(ctx, q, "egress.rules", groups...); err != nil {
 		return mapDomainErr(err)
 	}
-	for _, id := range folders {
-		if _, err := q.LockFolder(ctx, id); errors.Is(err, sql.ErrNoRows) {
-			return fieldErr("body.egress.rules", "folder_not_found")
-		} else if err != nil {
-			return err
+	for _, check := range []struct {
+		ids   []int64
+		query func(context.Context, []int64) ([]int64, error)
+		code  string
+	}{
+		{folders, q.LockFolders, "folder_not_found"},
+		{users, q.LockFilterUsers, "not_found"},
+		{tariffs, q.ListTariffIDs, "not_found"},
+	} {
+		if len(check.ids) == 0 {
+			continue
 		}
-	}
-	if len(users) > 0 {
-		found, err := q.LockFilterUsers(ctx, users)
+		found, err := check.query(ctx, check.ids)
 		if err != nil {
 			return err
 		}
-		if len(found) != len(users) {
-			return fieldErr("body.egress.rules", "not_found")
-		}
-	}
-	for _, id := range tariffs {
-		if _, err := q.GetTariff(ctx, id); errors.Is(err, sql.ErrNoRows) {
-			return fieldErr("body.egress.rules", "not_found")
-		} else if err != nil {
-			return err
+		if len(found) != len(check.ids) {
+			return fieldErr("body.egress.rules", check.code)
 		}
 	}
 	return nil

@@ -270,7 +270,7 @@ func (h *handlers) deleteFolder(ctx context.Context, in *folderIDInput) (*struct
 		if n == 0 {
 			return huma.Error404NotFound("not_found")
 		}
-		return filters.DropAudience(ctx, q, "folders", []int64{in.ID})
+		return filters.DropAudience(ctx, q, filters.AudienceFolders, []int64{in.ID})
 	})
 	if err != nil {
 		return nil, err

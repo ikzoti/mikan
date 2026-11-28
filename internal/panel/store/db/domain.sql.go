@@ -835,6 +835,34 @@ func (q *Queries) ListSlots(ctx context.Context) ([]Slot, error) {
 	return items, nil
 }
 
+const listTariffIDs = `-- name: ListTariffIDs :many
+SELECT id FROM tariffs WHERE id = ANY($1::bigint[]) ORDER BY id
+`
+
+// The plans of ids that exist, archived ones too.
+func (q *Queries) ListTariffIDs(ctx context.Context, ids []int64) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listTariffIDs, pq.Array(ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTariffTerms = `-- name: ListTariffTerms :many
 SELECT id, tariff_id, days, price_stars, price_rub, sort FROM tariff_terms WHERE tariff_id = $1 ORDER BY sort, id
 `

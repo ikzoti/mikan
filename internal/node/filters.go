@@ -8,6 +8,12 @@ import (
 	"mikan/internal/nodeapi"
 )
 
+const (
+	relayRule = "IN-NAME," + nodeapi.RelayListener
+	// Scoped rules are the entry node's: on an exit the relay stands in for the client.
+	localRule = "NOT,((" + relayRule + "))"
+)
+
 // egressRules renders destination filters before cascade and WARP. The entry
 // node evaluates scoped blocks, where the authenticated slot is known.
 func egressRules(st nodeapi.DesiredState) (global, scoped []string) {
@@ -15,65 +21,91 @@ func egressRules(st nodeapi.DesiredState) (global, scoped []string) {
 		return nil, nil
 	}
 	e := st.Filters.Egress
-	slots := make(map[string]string, len(st.Slots))
-	for _, slot := range st.Slots {
-		if ruleUser(slot.Name) && ruleUser(slot.UUID) {
-			slots[slot.Name] = strings.ToLower(slot.UUID)
-		}
-	}
-	relay := "IN-NAME," + nodeapi.RelayListener
-	local := "NOT,((" + relay + "))"
+	slots := slotUUIDs(st.Slots)
 	exceptions := map[string][]string{}
 	for _, rule := range e.Scoped {
 		target := egressTarget(rule.Kind, rule.Value)
 		if target == "" {
 			continue
 		}
-		var ids []string
-		for _, name := range rule.Slots {
-			if uuid, ok := slots[name]; ok {
-				ids = append(ids, name, uuid)
-			}
-		}
-		slices.Sort(ids)
-		user := "IN-USER," + strings.Join(slices.Compact(ids), "/")
-		switch rule.Scope {
-		case "only":
-			if len(ids) > 0 {
-				scoped = append(scoped, "AND,(("+target+"),("+local+"),("+user+")),REJECT")
-			}
-		case "except":
-			match := "(" + target + "),(" + local + ")"
-			if len(ids) > 0 {
-				match += ",(NOT,((" + user + ")))"
-			}
-			scoped = append(scoped, "AND,("+match+"),REJECT")
-		case "allow":
-			if rule.Kind != "domain" || len(ids) == 0 {
-				continue
-			}
-			// Exempt just this domain's block and blocks on its ancestors. The
-			// exit can trust the entry's decision for these matching destinations.
-			match := "(AND,((" + target + "),(OR,((" + user + "),(" + relay + ")))))"
-			host := strings.TrimPrefix(target, "DOMAIN-SUFFIX,")
-			for {
-				exceptions[host] = append(exceptions[host], match)
-				_, parent, ok := strings.Cut(host, ".")
-				if !ok {
-					break
-				}
-				host = parent
-			}
+		ids := ruleUsers(rule.Slots, slots)
+		if rule.Scope == "allow" {
+			addException(exceptions, rule.Kind, target, ids)
+		} else if r := scopedRule(rule.Scope, target, ids); r != "" {
+			scoped = append(scoped, r)
 		}
 	}
+	return globalRules(e, exceptions), scoped
+}
+
+// slotUUIDs maps each slot name a rule may name to the UUID TUIC reports for it.
+func slotUUIDs(slots []nodeapi.Slot) map[string]string {
+	out := make(map[string]string, len(slots))
+	for _, slot := range slots {
+		if ruleUser(slot.Name) && ruleUser(slot.UUID) {
+			out[slot.Name] = strings.ToLower(slot.UUID)
+		}
+	}
+	return out
+}
+
+// ruleUsers are the names and UUIDs of the rule's slots that this node serves.
+func ruleUsers(names []string, slots map[string]string) []string {
+	var ids []string
+	for _, name := range names {
+		if uuid, ok := slots[name]; ok {
+			ids = append(ids, name, uuid)
+		}
+	}
+	slices.Sort(ids)
+	return slices.Compact(ids)
+}
+
+// scopedRule puts the destination first: IN-USER is a linear scan, so it runs only for
+// connections that already go there.
+func scopedRule(scope, target string, ids []string) string {
+	user := "IN-USER," + strings.Join(ids, "/")
+	switch {
+	case scope == "only" && len(ids) > 0:
+		return "AND,((" + target + "),(" + localRule + "),(" + user + ")),REJECT"
+	case scope == "except" && len(ids) > 0:
+		return "AND,((" + target + "),(" + localRule + "),(NOT,((" + user + ")))),REJECT"
+	case scope == "except":
+		return "AND,((" + target + "),(" + localRule + ")),REJECT"
+	}
+	return ""
+}
+
+// addException exempts the slots from the global blocks on this domain and on its
+// ancestors, not from narrower blocks below it. The exit trusts the entry's decision for
+// these destinations.
+func addException(exceptions map[string][]string, kind, target string, ids []string) {
+	if kind != "domain" || len(ids) == 0 {
+		return
+	}
+	match := "(AND,((" + target + "),(OR,((IN-USER," + strings.Join(ids, "/") + "),(" + relayRule + ")))))"
+	host := strings.TrimPrefix(target, "DOMAIN-SUFFIX,")
+	for {
+		exceptions[host] = append(exceptions[host], match)
+		_, parent, ok := strings.Cut(host, ".")
+		if !ok {
+			return
+		}
+		host = parent
+	}
+}
+
+// globalRules close the lists for everyone, each domain but for its exceptions.
+func globalRules(e nodeapi.Egress, exceptions map[string][]string) []string {
+	var rules []string
 	for _, p := range e.Ports {
 		if target := egressTarget("port", p); target != "" {
-			global = append(global, target+",REJECT")
+			rules = append(rules, target+",REJECT")
 		}
 	}
 	for _, n := range e.Networks {
 		if target := egressTarget("network", n); target != "" {
-			global = append(global, target+",REJECT")
+			rules = append(rules, target+",REJECT")
 		}
 	}
 	for _, d := range e.Domains {
@@ -85,9 +117,9 @@ func egressRules(st nodeapi.DesiredState) (global, scoped []string) {
 		if allow := exceptions[domain]; len(allow) > 0 {
 			target = "AND,((" + target + "),(NOT,((OR,(" + strings.Join(allow, ",") + ")))))"
 		}
-		global = append(global, target+",REJECT")
+		rules = append(rules, target+",REJECT")
 	}
-	return global, scoped
+	return rules
 }
 
 func ruleUser(s string) bool {
