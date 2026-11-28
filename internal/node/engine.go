@@ -142,9 +142,11 @@ type Engine struct {
 func rulesKey(st nodeapi.DesiredState, allowPrivate bool) string {
 	rules, sub := routingRules(st, allowPrivate)
 	raw, _ := json.Marshal(struct {
-		Rules []string
-		Sub   map[string][]string
-	}{rules, sub})
+		Rules      []string
+		Sub        map[string][]string
+		PinNetwork bool
+		ScopedUDP  bool
+	}{rules, sub, hasScopedNetworks(st.Filters), hasScopedRules(st.Filters)})
 	return string(raw)
 }
 
@@ -418,7 +420,15 @@ func (e *Engine) apply(st nodeapi.DesiredState) (nodeapi.ApplyResult, error) {
 	}
 
 	if key := rulesKey(st, e.allowPrivate); key != e.routes {
+		installDestinationChecks(cfg.Rules, hasScopedNetworks(st.Filters))
+		scoped := hasScopedRules(st.Filters)
+		if scoped {
+			e.tun.scopedUDP.Store(true)
+		}
 		tunnel.UpdateRules(cfg.Rules, cfg.SubRules, cfg.RuleProviders)
+		if !scoped {
+			e.tun.scopedUDP.Store(false)
+		}
 		e.routes = key
 	}
 

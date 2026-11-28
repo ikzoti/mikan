@@ -3,7 +3,10 @@ package node
 import (
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"strings"
+
+	C "github.com/metacubex/mihomo/constant"
 
 	"mikan/internal/nodeapi"
 	"mikan/internal/proto"
@@ -71,4 +74,65 @@ func exitRules(st nodeapi.DesiredState) []string {
 		}
 	}
 	return r
+}
+
+func hasScopedNetworks(f *nodeapi.Filters) bool {
+	if f != nil {
+		for _, r := range f.Egress.Scoped {
+			if r.Kind == "network" && (r.Scope == "only" || r.Scope == "except") && egressTarget(r.Kind, r.Value) != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func installDestinationChecks(rules []C.Rule, pin bool) {
+	if !pin {
+		return
+	}
+	// Preserve literal destinations from the relay before checking the exit's rules.
+	// Its sniffer may recover a hostname for domain rules, even on a pinned flow.
+	rules[0] = relayAddressRule{rules[0]}
+	for i, r := range rules {
+		if r.Adapter() == "DIRECT" || r.Adapter() == warpProxy || strings.HasPrefix(r.Adapter(), "NODE-") {
+			rules[i] = checkedAddressRule{r}
+		}
+	}
+}
+
+type relayAddressRule struct{ C.Rule }
+
+func (r relayAddressRule) Match(m *C.Metadata, helper C.RuleMatchHelper) (bool, string) {
+	if m.InName == nodeapi.RelayListener {
+		// Citrus sets RawDstAddr only when the VLESS request supplied an IP.
+		if raw, ok := m.RawDstAddr.(interface{ AddrPort() netip.AddrPort }); ok {
+			if ip := raw.AddrPort().Addr().Unmap(); ip.IsValid() {
+				m.DstIP, m.DstIPChecked = ip, true
+				m.Host = ""
+			}
+		}
+	}
+	return r.Rule.Match(m, helper)
+}
+
+type checkedAddressRule struct{ C.Rule }
+
+func (r checkedAddressRule) Match(m *C.Metadata, helper C.RuleMatchHelper) (bool, string) {
+	matched, target := r.Rule.Match(m, helper)
+	if !matched || m.Host == "" {
+		return matched, target
+	}
+	// CIDR rules have already run. Send the checked IP so DNS at a VLESS
+	// exit or inside WARP cannot change the destination.
+	if !m.DstIP.IsValid() {
+		if helper.ResolveIP != nil {
+			helper.ResolveIP() // the core remembers any lookup the CIDR rules attempted
+		}
+		if !m.DstIP.IsValid() {
+			return true, "REJECT"
+		}
+	}
+	m.SniffHost, m.Host = m.RuleHost(), ""
+	return true, target
 }

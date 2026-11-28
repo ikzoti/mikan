@@ -18,6 +18,8 @@ Under **Rules by audience**, choose who a rule blocks for a domain, network or p
 
 The first node in a cascade evaluates rules by audience. On protocols with a shared key, the node cannot distinguish clients. Only selected has no effect there, and Everyone except selected blocks matching traffic for the shared connection. Update every node in a cascade before enabling rules by audience.
 
+With a network rule by audience, the node resolves destinations before choosing the outbound. WARP and each hop of a cascade use the checked address. An exit can still read the domain name from the traffic for domain rules.
+
 ## Incoming connections
 
 The **Incoming connections** card: the nodes check where connections come from. The list of networks works in two modes: "Deny these networks" or "Allow only these networks". In the second one every other user loses access, so be careful. The panel's other nodes (cascade) are always let in. With a CDN or a TCP proxy in front of a node, the node sees its address, not the user's: list its networks or leave the check off. For a protocol [behind a CDN](/mikan/en/protocols/cdn/) the node takes the real client address from a header.

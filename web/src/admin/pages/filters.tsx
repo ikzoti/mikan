@@ -9,7 +9,7 @@ import { SwitchRow } from "../../components/switch";
 import { useToast } from "../../components/toast";
 import { Field, PageHeader, Segmented, Skeleton } from "../../components/ui";
 import { t } from "../../i18n";
-import { useDraft } from "../../lib/draft";
+import { same, useDraft } from "../../lib/draft";
 import { fieldErrors } from "../../lib/fields";
 import { splitList } from "../../lib/list";
 import { BackToAddons } from "./addon-row";
@@ -100,6 +100,7 @@ function EgressCard({ v }: { v: View }) {
           error={listError(errors, "egress.rules")}
           onRemove={(index) => setDraft((d) => ({ ...d, rules: d.rules.filter((_, i) => i !== index) }))}
           onSave={(index, { scope, ...rule }) => setDraft((d) => {
+            if (!same(d.rules, draft.rules)) return d;
             const key = rule.kind === "network" ? "networks" : rule.kind === "port" ? "ports" : "domains";
             const rules = d.rules.filter((_, i) => i !== index);
             const globals = splitList(d[key]).filter((value) => !sameDestination(rule.kind, value, rule.value));

@@ -19,7 +19,10 @@ type Tunnel struct {
 	inner        C.Tunnel
 	reg          *Registry
 	paymentHosts atomic.Pointer[paymentTargets]
+	scopedUDP    atomic.Bool
 }
+
+func hasScopedRules(f *nodeapi.Filters) bool { return f != nil && len(f.Egress.Scoped) > 0 }
 
 func (t *Tunnel) HandleTCPConn(conn net.Conn, m *C.Metadata) {
 	// REALITY dials its dest through this tunnel for every handshake; these carry no
@@ -89,8 +92,12 @@ func peekFirst(bc *N.BufferedConn) []byte {
 }
 
 func (t *Tunnel) HandleUDPPacket(p C.UDPPacket, m *C.Metadata) {
-	if m.Type == C.INNER || m.InName == nodeapi.RelayListener {
+	if m.Type == C.INNER {
 		t.inner.HandleUDPPacket(p, m)
+		return
+	}
+	if m.InName == nodeapi.RelayListener {
+		t.forwardUDP(p, m)
 		return
 	}
 	if paymentUser(m.InUser) || !t.reg.admitFrom(m.SrcIP) {
@@ -112,7 +119,25 @@ func (t *Tunnel) HandleUDPPacket(p C.UDPPacket, m *C.Metadata) {
 	}
 	// The core holds the session to the user's speed, both ways, and counts it to its site
 	// as it ends, like a TCP connection.
+	t.forwardUDP(p, m)
+}
+
+func (t *Tunnel) forwardUDP(p C.UDPPacket, m *C.Metadata) {
+	if t.scopedUDP.Load() {
+		source := p.LocalAddr()
+		key := source.String() + "\x00" + m.RemoteAddress()
+		p = destinationPacket{p, N.NewCustomAddr(source.Network(), key, source)}
+	}
 	t.inner.HandleUDPPacket(p, m)
 }
+
+// The core normally reuses one UDP route for a client socket. A filter verdict
+// and a relay's checked address apply to a single destination on that socket.
+type destinationPacket struct {
+	C.UDPPacket
+	source net.Addr
+}
+
+func (p destinationPacket) LocalAddr() net.Addr { return p.source }
 
 func (t *Tunnel) NatTable() C.NatTable { return t.inner.NatTable() }

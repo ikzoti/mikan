@@ -98,6 +98,117 @@ func TestCascadeConfig(t *testing.T) {
 	}
 }
 
+func TestScopedNetworkKeepsCheckedDestination(t *testing.T) {
+	st := cascadeState(t)
+	st.Slots = []nodeapi.Slot{{Name: "s1", UUID: "a83de115-cfed-416d-9f72-b0b6463a7c0f"}}
+	st.Filters = &nodeapi.Filters{Egress: nodeapi.Egress{
+		Domains: []string{"deny.example"},
+		Scoped:  []nodeapi.ScopedEgress{{Kind: "network", Value: "203.0.113.0/24", Scope: "only", Slots: []string{"s1"}}},
+	}}
+	raw, _, err := buildConfig(st, proto.Cert{}, true, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := executor.ParseWithBytes(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	match := func(t *testing.T, m *C.Metadata, resolved netip.Addr) string {
+		t.Helper()
+		for _, r := range cfg.Rules {
+			if ok, target := r.Match(m, C.RuleMatchHelper{ResolveIP: func() {
+				if !m.Resolved() {
+					m.DstIP = resolved
+				}
+			}}); ok {
+				return target
+			}
+		}
+		t.Fatal("no route matched")
+		return ""
+	}
+	addr := netip.MustParseAddrPort("198.51.100.7:443")
+	installDestinationChecks(cfg.Rules, false)
+	unfiltered := &C.Metadata{NetWork: C.TCP, InName: "in-anytls", Host: "safe.example", DstPort: 443}
+	if target := match(t, unfiltered, addr.Addr()); target != "NODE-3" || unfiltered.Host != "safe.example" {
+		t.Fatalf("ordinary relay route matched %s with metadata %+v", target, unfiltered)
+	}
+	installDestinationChecks(cfg.Rules, hasScopedNetworks(st.Filters))
+	for _, network := range []C.NetWork{C.TCP, C.UDP} {
+		t.Run(network.String(), func(t *testing.T) {
+			entry := &C.Metadata{NetWork: network, InName: "in-anytls", InUser: "s1", Host: "safe.example", DstPort: 443}
+			if target := match(t, entry.Clone(), mustAddr("203.0.113.7")); target != "REJECT" {
+				t.Fatalf("scoped network matched %s", target)
+			}
+			if target := match(t, entry.Clone(), netip.Addr{}); target != "REJECT" {
+				t.Fatalf("unresolved destination matched %s", target)
+			}
+			if target := match(t, entry, addr.Addr()); target != "NODE-3" || entry.Host != "" || entry.RuleHost() != "safe.example" || entry.AddrPort() != addr {
+				t.Fatalf("entry matched %s with metadata %+v", target, entry)
+			}
+			// The relay has already sniffed the name and Citrus cleared DstIP.
+			relay := &C.Metadata{NetWork: network, InName: nodeapi.RelayListener, Host: "safe.example", SniffHost: "safe.example", DstPort: 443}
+			if network == C.TCP {
+				relay.RawDstAddr = net.TCPAddrFromAddrPort(addr)
+			} else {
+				relay.RawDstAddr = net.UDPAddrFromAddrPort(addr)
+			}
+			if target := match(t, relay, mustAddr("203.0.113.7")); target != "NODE-3" || relay.Host != "" || relay.RuleHost() != "safe.example" || relay.AddrPort() != addr {
+				t.Fatalf("relay matched %s with metadata %+v", target, relay)
+			}
+			relay.SniffHost = "deny.example"
+			if target := match(t, relay, netip.Addr{}); target != "REJECT" {
+				t.Fatalf("global domain block matched %s", target)
+			}
+			for _, route := range []struct{ host, target string }{{"openai.com", "WARP"}, {"direct.example", "DIRECT"}} {
+				m := &C.Metadata{NetWork: network, InUser: "s1", Host: route.host, DstPort: 443}
+				if target := match(t, m, addr.Addr()); target != route.target || m.Host != "" || m.RuleHost() != route.host || m.AddrPort() != addr {
+					t.Fatalf("wanted %s, matched %s with metadata %+v", route.target, target, m)
+				}
+			}
+		})
+	}
+}
+
+type udpKeyRecorder struct {
+	C.Tunnel
+	keys []string
+}
+
+func (r *udpKeyRecorder) HandleUDPPacket(p C.UDPPacket, m *C.Metadata) {
+	r.keys = append(r.keys, C.NatKey(p, m))
+}
+
+type udpSource struct{ C.UDPPacket }
+
+func (udpSource) LocalAddr() net.Addr {
+	return net.UDPAddrFromAddrPort(netip.MustParseAddrPort("192.0.2.5:1001"))
+}
+
+func TestRelayUDPRouteIsBoundToDestination(t *testing.T) {
+	inner := &udpKeyRecorder{}
+	tun := &Tunnel{inner: inner}
+	m := &C.Metadata{InName: nodeapi.RelayListener, Host: "udp.example", DstPort: 443}
+	tun.HandleUDPPacket(udpSource{}, m)
+	m.DstPort = 8443
+	tun.HandleUDPPacket(udpSource{}, m)
+	if inner.keys[0] != inner.keys[1] {
+		t.Fatal("without scoped filters, destinations on the same UDP socket should share a session")
+	}
+	inner.keys = nil
+	tun.scopedUDP.Store(true)
+	m.DstPort = 443
+	tun.HandleUDPPacket(udpSource{}, m)
+	tun.HandleUDPPacket(udpSource{}, m)
+	m.DstPort = 8443
+	tun.HandleUDPPacket(udpSource{}, m)
+	m.Host = "other.example"
+	tun.HandleUDPPacket(udpSource{}, m)
+	if k := inner.keys; len(k) != 4 || k[0] != k[1] || k[1] == k[2] || k[2] == k[3] {
+		t.Fatalf("UDP session keys = %q", k)
+	}
+}
+
 // recordingTunnel stands for mihomo's tunnel: it notes what reached it.
 type recordingTunnel struct{ tcp atomic.Int32 }
 

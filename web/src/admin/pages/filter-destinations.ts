@@ -16,6 +16,46 @@ export function coveringDomain(value: string, domains: string[]): string | undef
   });
 }
 
+// Match the panel's CIDR normalization, including IPv4-mapped IPv6 addresses.
+function normalizedNetwork(value: string): string | undefined {
+  const [host = "", prefix, ...rest] = value.trim().split("/");
+  if (rest.length || (prefix !== undefined && !/^(0|[1-9][0-9]{0,2})$/.test(prefix))) return;
+  let width = 32;
+  let address: bigint;
+  if (host.includes(":")) {
+    if (!/^[0-9a-f:.]+$/i.test(host)) return;
+    try {
+      const canon = new URL(`http://[${host}]`).hostname.slice(1, -1);
+      const [head = "", tail] = canon.split("::");
+      const first = head ? head.split(":") : [];
+      const last = tail ? tail.split(":") : [];
+      const parts = tail === undefined ? first : [...first, ...Array<string>(8 - first.length - last.length).fill("0"), ...last];
+      address = BigInt("0x" + parts.map((part) => part.padStart(4, "0")).join(""));
+      width = 128;
+    } catch {
+      return;
+    }
+  } else {
+    const parts = host.split(".");
+    if (parts.length !== 4 || parts.some((part) => !/^(0|[1-9][0-9]{0,2})$/.test(part) || Number(part) > 255)) return;
+    address = parts.reduce((ip, part) => (ip << 8n) | BigInt(part), 0n);
+  }
+  let bits = prefix === undefined ? width : Number(prefix);
+  if (bits > width) return;
+  if (width === 128 && bits >= 96 && address >> 32n === 0xffffn) {
+    width = 32;
+    bits -= 96;
+    address &= 0xffffffffn;
+  }
+  return `${width}:${address >> BigInt(width - bits)}/${bits}`;
+}
+
 export function sameDestination(kind: "domain" | "network" | "port", a: string, b: string): boolean {
-  return kind === "domain" ? normalizedDomain(a) === normalizedDomain(b) : a.trim() === b.trim();
+  if (a.trim() === b.trim()) return true;
+  if (kind === "domain") return normalizedDomain(a) === normalizedDomain(b);
+  if (kind === "network") {
+    const network = normalizedNetwork(a);
+    return network !== undefined && network === normalizedNetwork(b);
+  }
+  return false;
 }

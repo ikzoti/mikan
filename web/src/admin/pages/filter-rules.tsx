@@ -4,6 +4,7 @@ import { useFolders, useGroups, useTariffs, useUsersPages } from "../../api/hook
 import { Button, Field } from "../../components/ui";
 import { t } from "../../i18n";
 import { useDebounced } from "../../lib/debounce";
+import { same } from "../../lib/draft";
 import { coveringDomain, sameDestination } from "./filter-destinations";
 
 type Rule = Schemas["AudienceRule"];
@@ -20,13 +21,15 @@ export function FilterRules({ rules, globalValues, userNames, onSave, onRemove, 
   onRemove: (index: number) => void;
   error?: string;
 }) {
-  const [editing, setEditing] = useState<number | null>(null);
+  const [editing, setEditing] = useState<{ index: number; rules: Rule[] } | null>(null);
   const [pickedNames, setPickedNames] = useState<Record<string, string>>({});
+  if (editing && !same(editing.rules, rules)) setEditing(null);
+  const open = (index: number) => setEditing({ index, rules });
   return (
     <div className="mt-5 border-t border-[var(--line)] pt-4">
       <div className="mb-2 flex items-center justify-between gap-2">
         <h3 className="text-sm font-medium">{t("filters.rules.title")}</h3>
-        {editing === null && <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(-1)}>{t("filters.rules.add")}</Button>}
+        {editing === null && <Button type="button" size="sm" variant="ghost" onClick={() => open(-1)}>{t("filters.rules.add")}</Button>}
       </div>
       {error && <p className="banner err" role="alert">{error}</p>}
       {rules.length > 0 && (
@@ -39,7 +42,7 @@ export function FilterRules({ rules, globalValues, userNames, onSave, onRemove, 
                 <span className="ml-2 text-xs text-[var(--ink-600)]">{t(`filters.rules.${rule.scope}`)}</span>
                 {shadowed && <span className="block text-xs text-[var(--ink-600)]">{t("filters.rules.shadowed", { value: shadowed })}</span>}
               </span>
-              <Button type="button" size="sm" variant="ghost" disabled={editing !== null} onClick={() => setEditing(i)}>{t("filters.rules.edit")}</Button>
+              <Button type="button" size="sm" variant="ghost" disabled={editing !== null} onClick={() => open(i)}>{t("filters.rules.edit")}</Button>
               <Button type="button" size="sm" variant="ghost" disabled={editing !== null} onClick={() => onRemove(i)}>{t("filters.rules.remove")}</Button>
             </li>;
           })}
@@ -47,13 +50,13 @@ export function FilterRules({ rules, globalValues, userNames, onSave, onRemove, 
       )}
       {editing !== null && (
         <RuleEditor
-          initial={rules[editing]}
+          initial={rules[editing.index]}
           globalValues={globalValues}
           userNames={{ ...userNames, ...pickedNames }}
           rememberUser={(id, name) => setPickedNames((names) => ({ ...names, [id]: name }))}
           close={() => setEditing(null)}
           save={(rule) => {
-            onSave(editing, rule);
+            onSave(editing.index, rule);
             setEditing(null);
           }}
         />
